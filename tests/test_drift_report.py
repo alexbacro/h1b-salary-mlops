@@ -36,3 +36,9 @@ def test_load_makes_categoricals_strings_without_missing(tmp_path):
     for col in CAT:
         assert df[col].map(type).eq(str).all()
     assert not df[CAT].isna().any().any()
+
+
+def test_load_labels_missing_categories(tmp_path):
+    df = load(_write_parquet(tmp_path))
+    assert "missing" in set(df["naics_2"])
+    assert "nan" not in set(df["naics_2"])
