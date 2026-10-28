@@ -1,0 +1,8 @@
+# Runtime dependencies for the data stage (ingest -> clean -> split -> baseline).
+# Training (MLflow + FLAML), serving (FastAPI) and monitoring (Evidently) add their
+# dependencies here as those stages land.
+numpy>=1.26,<3
+pandas>=2.2,<3
+pyarrow>=15
+python-calamine>=0.2   # fast .xlsx reader used by pandas (engine="calamine")
+pyyaml>=6

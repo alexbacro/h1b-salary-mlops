@@ -1,0 +1,23 @@
+# Central pipeline configuration. Every stage reads this file through h1b.config,
+# so changing a fiscal year or filter here changes it everywhere (CLI, Airflow, CI).
+
+data:
+  raw_dir: data/raw              # DOL .xlsx files go here (downloaded manually, see data/README.md)
+  interim_dir: data/interim      # one Parquet per raw file, columns renamed to the canonical schema
+  processed_dir: data/processed  # cleaned dataset + train/val splits
+  holdout_dir: data/holdout      # isolated test split; only read during production validation
+  reports_dir: reports           # JSON reports (ingestion validation, baseline metrics)
+
+filters:
+  visa_classes: ["H-1B"]                            # drop E-3 / H-1B1 filings
+  case_statuses: ["CERTIFIED", "CERTIFIED-WITHDRAWN"]  # certified wages only; denied/withdrawn are unreliable
+  min_annual_wage: 15000     # below this the wage unit was almost certainly mis-entered
+  max_annual_wage: 1000000   # above this we treat the record as a data-entry error
+
+# Temporal split on fiscal year (derived from DECISION_DATE). Years must not overlap.
+split:
+  train_years: [2022, 2023]
+  val_years: [2024]
+  test_years: [2025]
+
+seed: 42

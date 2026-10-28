@@ -1,0 +1,35 @@
+# Data: raw DOL files are ~100 MB each and derived files are reproducible, so none are committed.
+data/raw/*
+data/interim/*
+data/processed/*
+data/holdout/*
+!data/**/.gitkeep
+
+# Generated reports (regenerate with `make data`); keep the folder.
+reports/*
+!reports/.gitkeep
+
+# MLflow / Airflow local state
+mlruns/
+mlartifacts/
+mlflow.db
+airflow/logs/
+airflow/*.db
+airflow/*.cfg
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv*/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Env / OS / editors
+.env
+.DS_Store
+.idea/
+.vscode/
+~$*.xlsx

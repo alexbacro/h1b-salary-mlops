@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "h1b"
+version = "0.1.0"
+description = "H-1B salary prediction: an end-to-end MLOps pipeline on DOL LCA disclosure data"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle errors and warnings
+    "F",        # Pyflakes
+    "I",        # import sorting
+    "N",        # PEP 8 naming
+    "B",        # flake8-bugbear
+    "UP",       # pyupgrade
+    "SIM",      # flake8-simplify
+    "NPY",      # NumPy-specific rules
+    "PD",       # pandas-vet
+]
