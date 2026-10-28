@@ -1,7 +1,7 @@
 # Convenience targets. Run `make help` to list them.
 PYTHON ?= python
 
-.PHONY: help setup lint format test ingest clean-data split baseline data
+.PHONY: help setup lint format test ingest clean-data split baseline data drift
 
 help:  ## Show this help
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -33,3 +33,6 @@ baseline:  ## Median-by-SOC-and-state baseline, evaluated on val
 	$(PYTHON) -m h1b.baseline
 
 data: ingest clean-data split baseline  ## Run the whole data stage end to end
+
+drift:  ## Evidently drift reports: train vs val (features and target) -> reports/*.html
+	$(PYTHON) -m h1b.drift_report
