@@ -99,7 +99,7 @@ Fiscal years, filters and wage bounds are all set in [`params.yaml`](params.yaml
 
 | Member | Responsibilities |
 |---|---|
-| Alex Bacro | Repository & CI setup, data ingestion pipeline, technical design |
-| Jiwon Choi | _TBD_ |
-| Sola Shin | _TBD_ |
-| Faith Kirabo | _TBD_ |
+| Alex Bacro | Repository and CI setup, data ingestion pipeline, technical design, Docker compose stack (MLflow, API, Airflow), end-to-end smoke test in CI, PR review and merging |
+| Jiwon Choi | MLflow experiment tracking, FLAML training, model registry (alias @champion) |
+| Sola Shin | Evidently monitoring, drift simulation, project coordination |
+| Faith Kirabo | Airflow DAG, FastAPI service |
