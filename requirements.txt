@@ -7,3 +7,5 @@ pyarrow>=15
 python-calamine>=0.2   # fast .xlsx reader used by pandas (engine="calamine")
 pyyaml>=6
 evidently>=0.7.23,<0.8   # data drift reports (monitoring stage)
+fastapi>=0.162,<1        # serving stage (h1b.serve)
+uvicorn>=0.54,<1         # ASGI server that runs the FastAPI app

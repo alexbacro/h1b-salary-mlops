@@ -20,4 +20,11 @@ split:
   val_years: [2024]
   test_years: [2025]
 
+# FastAPI service (h1b.serve). The MLflow server address is NOT set here: it differs
+# between a laptop and Docker, so it comes from the MLFLOW_TRACKING_URI environment variable.
+serving:
+  model_name: h1b-salary-model   # registry name agreed by the team
+  model_alias: champion          # the API serves whichever version holds this alias
+  model_output: dollars        
+
 seed: 42
