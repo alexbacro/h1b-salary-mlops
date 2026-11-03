@@ -79,9 +79,11 @@ Fiscal years, filters and wage bounds are all set in [`params.yaml`](params.yaml
 │   ├── schema.py            # canonical columns + mapping of year-to-year header variants
 │   ├── ingest.py            # Excel -> Parquet (cached per file)
 │   ├── clean.py             # dedupe, filter, annualize wages, normalize text, validate
+│   ├── soc_crosswalk.py     # SOC 2010 -> 2018 lookup (generated)
 │   ├── split.py             # temporal train/val/test split
 │   ├── baseline.py          # median-by-SOC-and-state baseline
 │   └── metrics.py           # MAE, MAPE, log-RMSE
+├── scripts/                 # one-off generators (e.g. build_soc_crosswalk.py)
 ├── tests/                   # pytest unit tests (run in CI)
 ├── data/                    # git-ignored except README; see data/README.md
 ├── reports/                 # generated JSON reports (git-ignored)
