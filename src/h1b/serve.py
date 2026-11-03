@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from mlflow import MlflowClient
+from mlflow.exceptions import MlflowException
 from pydantic import BaseModel, ConfigDict, Field
 
 from h1b.config import load_params
@@ -32,7 +33,9 @@ from h1b.register_baseline import DEFAULT_TRACKING_URI
 
 log = logging.getLogger(__name__)
 
-MODEL_OUTPUTS = ("log_wage", "dollars")
+# Upper bound on records per request: the whole body is held in memory several times over
+# (JSON, pydantic objects, DataFrame), so an unbounded list could run the container out of memory.
+MAX_BATCH_SIZE = 10_000
 
 
 # ── Request / response schemas ────────────────────────────────────────────────
@@ -60,7 +63,7 @@ class JobRecord(BaseModel):
 
 class PredictRequest(BaseModel):
     # A list so the FY2025 holdout can be scored in batches; a single position is a list of one.
-    records: list[JobRecord] = Field(min_length=1)
+    records: list[JobRecord] = Field(min_length=1, max_length=MAX_BATCH_SIZE)
 
 
 class PredictResponse(BaseModel):
@@ -87,11 +90,13 @@ def load_champion(model_name: str, alias: str) -> tuple[Any, str]:
 def create_app(serving: dict[str, Any] | None = None) -> FastAPI:
     """Build the app. `serving` defaults to params.yaml; tests pass their own."""
     cfg = serving or load_params()["serving"]
-    if cfg["model_output"] not in MODEL_OUTPUTS:
-        raise ValueError(f"serving.model_output must be one of {MODEL_OUTPUTS}, got {cfg['model_output']!r}")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # uvicorn only configures its own loggers, so without this the h1b.serve INFO lines
+        # (e.g. which model version was loaded) never reach the console or `docker logs`.
+        # Same format as the other stages' main(); a no-op if logging is already configured.
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         # Docker sets MLFLOW_TRACKING_URI; locally fall back to the repo's mlflow.db (same default as training).
         mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI))
         app.state.model, app.state.model_version = None, None
@@ -127,8 +132,13 @@ def create_app(serving: dict[str, Any] | None = None) -> FastAPI:
             )
         # Same column order and dtypes the model was trained on.
         features = validate_features(pd.DataFrame([r.model_dump() for r in body.records]))
-        raw = np.asarray(model.predict(features), dtype=float)
-        wages = np.exp(raw) if cfg["model_output"] == "log_wage" else raw
+        try:
+            # Every registered model returns annual wage in USD (#8), so no unit conversion here.
+            wages = np.asarray(model.predict(features), dtype=float)
+        except MlflowException as exc:
+            # Raised by MLflow's signature check when the input doesn't fit the model's schema.
+            # A 422 with MLflow's message tells the caller what to fix; a bare 500 would not.
+            raise HTTPException(status_code=422, detail=f"Model rejected the input: {exc.message}") from exc
         return PredictResponse(
             predictions=[round(float(w), 2) for w in wages],
             model_name=cfg["model_name"],

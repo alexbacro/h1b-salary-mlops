@@ -25,6 +25,5 @@ split:
 serving:
   model_name: h1b-salary-model   # registry name agreed by the team
   model_alias: champion          # the API serves whichever version holds this alias
-  model_output: dollars        
 
 seed: 42

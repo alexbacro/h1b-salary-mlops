@@ -1,17 +1,17 @@
 """API tests against a throwaway local MLflow registry (SQLite in tmp_path); no server or real model needed."""
 
-import math
-
 import mlflow
 import pytest
 from fastapi.testclient import TestClient
 from mlflow import MlflowClient
+from mlflow.models import ModelSignature
+from mlflow.types import ColSpec, Schema
 
 from h1b.features import FEATURES
-from h1b.serve import JobRecord, create_app
+from h1b.serve import MAX_BATCH_SIZE, JobRecord, create_app
 
 MODEL_NAME = "test-salary-model"
-CONSTANT_LOG_WAGE = math.log(100_000)
+CONSTANT_WAGE = 100_000.0
 
 RECORD = {
     "soc_major": "15",
@@ -26,14 +26,14 @@ RECORD = {
 
 
 class ConstantModel(mlflow.pyfunc.PythonModel):
-    """Stands in for the real model: predicts log($100,000) for every row."""
+    """Stands in for the real model: predicts $100,000 for every row (registered models return USD, #8)."""
 
     def predict(self, context, model_input, params=None):
-        return [CONSTANT_LOG_WAGE] * len(model_input)
+        return [CONSTANT_WAGE] * len(model_input)
 
 
-def serving_cfg(model_output="log_wage"):
-    return {"model_name": MODEL_NAME, "model_alias": "champion", "model_output": model_output}
+def serving_cfg():
+    return {"model_name": MODEL_NAME, "model_alias": "champion"}
 
 
 @pytest.fixture
@@ -46,18 +46,30 @@ def registry(tmp_path, monkeypatch):
     mlflow.set_tracking_uri(None)
 
 
-@pytest.fixture
-def champion(registry):
-    """Register ConstantModel and give it the @champion alias."""
-    with mlflow.start_run(experiment_id=registry):
+def register_champion(experiment_id, signature=None) -> str:
+    """Register ConstantModel (optionally with an input signature) and give it the @champion alias."""
+    with mlflow.start_run(experiment_id=experiment_id):
         info = mlflow.pyfunc.log_model(
             name="model",
             python_model=ConstantModel(),
             registered_model_name=MODEL_NAME,
+            signature=signature,
             pip_requirements=["mlflow"],  # skip dependency inference to keep the test fast
         )
     MlflowClient().set_registered_model_alias(MODEL_NAME, "champion", info.registered_model_version)
     return str(info.registered_model_version)
+
+
+@pytest.fixture
+def champion(registry):
+    return register_champion(registry)
+
+
+@pytest.fixture
+def strict_champion(registry):
+    """A champion whose signature requires a column the API never sends, so MLflow's schema check fails."""
+    columns = [ColSpec("string", c) for c in FEATURES] + [ColSpec("string", "not_a_feature")]
+    return register_champion(registry, signature=ModelSignature(inputs=Schema(columns)))
 
 
 def test_request_fields_match_feature_contract():
@@ -78,20 +90,15 @@ def test_predict_with_champion_returns_dollars(champion):
         resp = client.post("/predict", json={"records": [RECORD, RECORD]})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["predictions"] == [pytest.approx(100_000, abs=0.01)] * 2  # exp(log wage) -> dollars
+    assert body["predictions"] == [pytest.approx(CONSTANT_WAGE)] * 2  # passed through unchanged
     assert body["model_version"] == champion
-
-
-def test_dollars_output_is_not_exponentiated(champion):
-    with TestClient(create_app(serving_cfg(model_output="dollars"))) as client:
-        resp = client.post("/predict", json={"records": [RECORD]})
-    assert resp.json()["predictions"] == [pytest.approx(CONSTANT_LOG_WAGE, abs=0.01)]
 
 
 @pytest.mark.parametrize(
     "body",
     [
         {"records": []},  # empty batch
+        {"records": [RECORD] * (MAX_BATCH_SIZE + 1)},  # batch over the cap
         {"records": [{k: v for k, v in RECORD.items() if k != "soc_code"}]},  # missing feature
         {"records": [{**RECORD, "salary": 1}]},  # unknown field
     ],
@@ -101,6 +108,9 @@ def test_bad_input_is_rejected(champion, body):
         assert client.post("/predict", json=body).status_code == 422
 
 
-def test_invalid_model_output_setting_fails_fast():
-    with pytest.raises(ValueError, match="model_output"):
-        create_app(serving_cfg(model_output="euros"))
+def test_model_schema_mismatch_returns_422_with_reason(strict_champion):
+    with TestClient(create_app(serving_cfg())) as client:
+        resp = client.post("/predict", json={"records": [RECORD]})
+    assert resp.status_code == 422
+    assert resp.json()["detail"].startswith("Model rejected the input:")
+    assert "not_a_feature" in resp.json()["detail"]  # MLflow's message names the problem column
