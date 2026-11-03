@@ -7,14 +7,21 @@ from mlflow import MlflowClient
 from mlflow.models import ModelSignature
 from mlflow.types import ColSpec, Schema
 
-from h1b.features import FEATURES
+from h1b.features import BOOLEAN_FEATURES, CATEGORICAL_FEATURES, FEATURES, REQUEST_FEATURES
 from h1b.serve import MAX_BATCH_SIZE, JobRecord, create_app
 
 MODEL_NAME = "test-salary-model"
 CONSTANT_WAGE = 100_000.0
 
+# The model signature agreed in #8 (item 1): categoricals as strings, booleans as nullable doubles.
+CONTRACT_SIGNATURE = ModelSignature(
+    inputs=Schema(
+        [ColSpec("string", c) for c in CATEGORICAL_FEATURES]
+        + [ColSpec("double", c, required=False) for c in BOOLEAN_FEATURES]
+    )
+)
+
 RECORD = {
-    "soc_major": "15",
     "naics_2": "54",
     "worksite_state": "IL",
     "soc_code": "15-2051",
@@ -66,6 +73,12 @@ def champion(registry):
 
 
 @pytest.fixture
+def contract_champion(registry):
+    """A champion with the #8 signature, so MLflow enforces the same input schema as the real models."""
+    return register_champion(registry, signature=CONTRACT_SIGNATURE)
+
+
+@pytest.fixture
 def strict_champion(registry):
     """A champion whose signature requires a column the API never sends, so MLflow's schema check fails."""
     columns = [ColSpec("string", c) for c in FEATURES] + [ColSpec("string", "not_a_feature")]
@@ -73,7 +86,7 @@ def strict_champion(registry):
 
 
 def test_request_fields_match_feature_contract():
-    assert list(JobRecord.model_fields) == FEATURES
+    assert set(JobRecord.model_fields) == set(REQUEST_FEATURES)
 
 
 def test_no_champion_starts_but_is_not_ready(registry):
@@ -101,11 +114,27 @@ def test_predict_with_champion_returns_dollars(champion):
         {"records": [RECORD] * (MAX_BATCH_SIZE + 1)},  # batch over the cap
         {"records": [{k: v for k, v in RECORD.items() if k != "soc_code"}]},  # missing feature
         {"records": [{**RECORD, "salary": 1}]},  # unknown field
+        {"records": [{**RECORD, "soc_major": "99"}]},  # derived field: computed from soc_code, never sent
     ],
 )
 def test_bad_input_is_rejected(champion, body):
     with TestClient(create_app(serving_cfg())) as client:
         assert client.post("/predict", json=body).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        RECORD,
+        {**RECORD, "full_time": None, "naics_2": None},  # nulls exist in training data, so must be accepted
+        {**RECORD, "soc_code": "15-2051.00", "worksite_state": "il", "job_title": "Data Scientist"},  # raw values
+    ],
+)
+def test_predict_passes_contract_signature(contract_champion, record):
+    with TestClient(create_app(serving_cfg())) as client:
+        resp = client.post("/predict", json={"records": [record]})
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["predictions"] == [pytest.approx(CONSTANT_WAGE)]
 
 
 def test_model_schema_mismatch_returns_422_with_reason(strict_champion):

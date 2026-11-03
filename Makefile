@@ -38,5 +38,5 @@ drift:  ## Evidently drift reports: train vs val (features and target) -> report
 	$(PYTHON) -m h1b.drift_report
 
 # Bound to 127.0.0.1 so the dev server is not exposed on the network; Docker sets its own host.
-serve:  ## FastAPI service on http://127.0.0.1:8000 (set MLFLOW_TRACKING_URI first)
+serve:  ## FastAPI service on http://127.0.0.1:8000 (registry: MLFLOW_TRACKING_URI, else ./mlflow.db)
 	$(PYTHON) -m uvicorn h1b.serve:app --host 127.0.0.1 --port 8000

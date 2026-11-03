@@ -13,6 +13,10 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PARAMS = REPO_ROOT / "params.yaml"
 
+# Local MLflow registry used when MLFLOW_TRACKING_URI is unset (git-ignored). Lives here so that
+# training/registration and the API share one default without the API importing training code.
+DEFAULT_TRACKING_URI = f"sqlite:///{REPO_ROOT / 'mlflow.db'}"
+
 
 @dataclass(frozen=True)
 class Paths:

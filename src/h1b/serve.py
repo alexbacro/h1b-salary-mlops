@@ -27,9 +27,8 @@ from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 from pydantic import BaseModel, ConfigDict, Field
 
-from h1b.config import load_params
-from h1b.features import validate_features
-from h1b.register_baseline import DEFAULT_TRACKING_URI
+from h1b.config import DEFAULT_TRACKING_URI, load_params
+from h1b.features import prepare_request
 
 log = logging.getLogger(__name__)
 
@@ -42,23 +41,24 @@ MAX_BATCH_SIZE = 10_000
 
 
 class JobRecord(BaseModel):
-    """One position, using the model's feature columns from h1b.features.
+    """One position, with the columns in features.REQUEST_FEATURES (a test enforces this).
 
-    Fields must match features.FEATURES (a test enforces this). Values are expected in the
-    same normalized form as data/processed/*.parquet, e.g. upper-case job titles.
+    Raw values are fine ('15-1252.00', 'ca', 'Data Scientist'): features.prepare_request
+    normalizes them the same way clean.py does and derives soc_major from soc_code.
     """
 
     # Unknown fields are rejected so a misspelled column fails loudly instead of being ignored.
+    # This includes soc_major: it is derived, never sent.
     model_config = ConfigDict(extra="forbid")
 
-    soc_major: str = Field(examples=["15"])
     naics_2: str | None = Field(default=None, examples=["54"])  # NAICS is optional in the DOL files
     worksite_state: str = Field(examples=["IL"])
     soc_code: str = Field(examples=["15-2051"])
     worksite_city: str | None = Field(default=None, examples=["CHICAGO"])
     job_title: str = Field(examples=["DATA SCIENTIST"])
     employer_name: str = Field(examples=["ACME CORP"])
-    full_time: bool = Field(examples=[True])
+    # Optional because training data has nulls here (clean.py); rejecting them would be train/serve skew.
+    full_time: bool | None = Field(default=None, examples=[True])
 
 
 class PredictRequest(BaseModel):
@@ -130,8 +130,8 @@ def create_app(serving: dict[str, Any] | None = None) -> FastAPI:
                 detail=f"No model loaded for {cfg['model_name']}@{cfg['model_alias']}. "
                 "Register one in MLflow and restart the service.",
             )
-        # Same column order and dtypes the model was trained on.
-        features = validate_features(pd.DataFrame([r.model_dump() for r in body.records]))
+        # Normalize + derive exactly like training, then the column order and dtypes the model expects.
+        features = prepare_request(pd.DataFrame([r.model_dump() for r in body.records]))
         try:
             # Every registered model returns annual wage in USD (#8), so no unit conversion here.
             wages = np.asarray(model.predict(features), dtype=float)

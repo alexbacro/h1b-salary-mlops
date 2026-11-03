@@ -81,8 +81,10 @@ make serve               # http://127.0.0.1:8000; interactive docs at /docs
 ```
 
 - `GET /health` reports whether a model is loaded and which version is served.
-- `POST /predict` takes `{"records": [...]}` (1 to 10,000 records with the feature columns in
-  `src/h1b/features.py`) and returns one predicted annual wage in USD per record.
+- `POST /predict` takes `{"records": [...]}` (1 to 10,000 records with the columns in
+  `REQUEST_FEATURES`, `src/h1b/features.py`) and returns one predicted annual wage in USD per record.
+  Raw values such as `15-1252.00` or `ca` are normalized the same way as the training data, and
+  `soc_major` is derived from `soc_code` (sending it is rejected).
 - With no champion registered the service still starts, and `/predict` returns 503.
 - The registry defaults to `mlflow.db` in the repo root; set `MLFLOW_TRACKING_URI` to use an MLflow server.
 
