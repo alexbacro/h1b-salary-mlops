@@ -17,6 +17,14 @@ MODEL_NAME = PARAMS["serving"]["model_name"]
 ALIAS = PARAMS["serving"]["model_alias"]
 
 
+@pytest.fixture(autouse=True)
+def _isolate_mlflow_state(monkeypatch):
+    """register() sets the global tracking URI; reset it so it cannot leak into other tests."""
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    yield
+    mlflow.set_tracking_uri(None)
+
+
 def _frame(n: int = 20) -> pd.DataFrame:
     df = pd.DataFrame({c: ["A"] * n for c in CATEGORICAL_FEATURES})
     df["soc_code"] = ["15-1132", "15-2041"] * (n // 2)
@@ -24,6 +32,7 @@ def _frame(n: int = 20) -> pd.DataFrame:
     for c in BOOLEAN_FEATURES:
         df[c] = [True, None, False, True] * (n // 4)  # nulls are real: clean.py lets <NA> through
     df = df.astype(DTYPES)
+    df.loc[df.index[1], ["naics_2", "worksite_city"]] = pd.NA  # clean.py can emit NA for both
     df["annual_wage"] = np.linspace(60_000, 150_000, n)
     df["log_wage"] = np.log(df["annual_wage"])
     return df
