@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_ARTIFACT_ROOT = REPO_ROOT / "mlruns"
 EXPERIMENT_NAME = "h1b-salary"
-SEMVER = "0.1.0"  # MLflow auto-numbers versions; the semantic version is stored as a tag
+INITIAL_SEMVER = "0.1.0"  # first version; later ones bump the patch number (see _next_semver)
 
 SIGNATURE = ModelSignature(
     inputs=Schema(
@@ -44,6 +45,22 @@ SIGNATURE = ModelSignature(
     ),
     outputs=Schema([ColSpec("double")]),
 )
+
+
+def _next_semver(client: MlflowClient, model_name: str) -> str:
+    """INITIAL_SEMVER for the first tagged version, else the highest existing `semver` tag with its patch + 1.
+
+    MLflow numbers versions 1, 2, 3...; the semantic version is our own tag on top of that.
+    """
+    found = []
+    for mv in client.search_model_versions(f"name='{model_name}'"):
+        tag = mv.tags.get("semver")
+        if tag and re.fullmatch(r"\d+\.\d+\.\d+", tag):
+            found.append(tuple(int(part) for part in tag.split(".")))
+    if not found:
+        return INITIAL_SEMVER
+    major, minor, patch = max(found)
+    return f"{major}.{minor}.{patch + 1}"
 
 
 def register(
@@ -103,9 +120,10 @@ def register(
         if not np.isclose(check[name], value):
             raise RuntimeError(f"Registered model disagrees on {name}: {check[name]} vs {value}")
 
-    client.set_model_version_tag(model_name, version, "semver", SEMVER)
+    semver = _next_semver(client, model_name)
+    client.set_model_version_tag(model_name, version, "semver", semver)
     client.set_registered_model_alias(model_name, alias, version)
-    log.info("registered %s v%s (semver %s) as @%s: %s", model_name, version, SEMVER, alias, metrics)
+    log.info("registered %s v%s (semver %s) as @%s: %s", model_name, version, semver, alias, metrics)
     return version
 
 

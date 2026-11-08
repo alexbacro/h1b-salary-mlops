@@ -10,7 +10,7 @@ from mlflow.exceptions import MlflowException
 from h1b import register_baseline
 from h1b.config import load_params
 from h1b.features import BOOLEAN_FEATURES, CATEGORICAL_FEATURES, DTYPES, to_model_input
-from h1b.register_baseline import SEMVER, register
+from h1b.register_baseline import INITIAL_SEMVER, register
 
 PARAMS = load_params()
 MODEL_NAME = PARAMS["serving"]["model_name"]
@@ -35,13 +35,25 @@ def test_register_sets_semver_tag_and_alias_with_null_full_time(tmp_path):
     version = register(frame, frame, tracking_uri=uri, artifact_root=tmp_path / "mlruns")
 
     client = MlflowClient(tracking_uri=uri)
-    assert client.get_model_version(MODEL_NAME, version).tags["semver"] == SEMVER
+    assert client.get_model_version(MODEL_NAME, version).tags["semver"] == INITIAL_SEMVER
     assert str(client.get_model_version_by_alias(MODEL_NAME, ALIAS).version) == version
 
     model = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}@{ALIAS}")
     preds = model.predict(to_model_input(frame))
     assert len(preds) == len(frame)
     assert (np.asarray(preds) > 0).all()
+
+
+def test_semver_patch_is_bumped_on_each_registration(tmp_path):
+    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    frame = _frame()
+    v1 = register(frame, frame, tracking_uri=uri, artifact_root=tmp_path / "mlruns")
+    v2 = register(frame, frame, tracking_uri=uri, artifact_root=tmp_path / "mlruns")
+
+    client = MlflowClient(tracking_uri=uri)
+    assert client.get_model_version(MODEL_NAME, v1).tags["semver"] == "0.1.0"
+    assert client.get_model_version(MODEL_NAME, v2).tags["semver"] == "0.1.1"
+    assert str(client.get_model_version_by_alias(MODEL_NAME, ALIAS).version) == v2
 
 
 def test_alias_not_moved_when_self_check_fails(tmp_path, monkeypatch):
