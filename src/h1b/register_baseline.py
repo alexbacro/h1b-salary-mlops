@@ -1,7 +1,8 @@
 """Train the median baseline and register it in the MLflow Model Registry.
 
-Registers `h1b-salary-model`, tags the new version with its semantic version and
-points the `champion` alias at it. Consumers load `models:/h1b-salary-model@champion`.
+Registers the model named in params.yaml (`serving.model_name`), tags the new version with its
+semantic version and moves the alias (`serving.model_alias`) to it, but only after a self-check
+that reloads that version and reproduces its logged metrics. Consumers load `models:/<name>@<alias>`.
 The model takes the feature columns in `h1b.features` and returns annual wage in USD.
 
 Usage:
@@ -24,24 +25,22 @@ from mlflow.models import ModelSignature
 from mlflow.types import ColSpec, Schema
 
 from h1b.baseline import MedianBaseline
-from h1b.config import REPO_ROOT, get_paths, load_params
-from h1b.features import BOOLEAN_FEATURES, CATEGORICAL_FEATURES, FEATURES, validate_features
+from h1b.config import DEFAULT_TRACKING_URI, REPO_ROOT, get_paths, load_params
+from h1b.features import BOOLEAN_FEATURES, CATEGORICAL_FEATURES, FEATURES, to_model_input
 from h1b.metrics import regression_report
 from h1b.mlflow_models import BaselinePyfunc
 
 log = logging.getLogger(__name__)
 
-DEFAULT_TRACKING_URI = f"sqlite:///{REPO_ROOT / 'mlflow.db'}"
 DEFAULT_ARTIFACT_ROOT = REPO_ROOT / "mlruns"
 EXPERIMENT_NAME = "h1b-salary"
-REGISTERED_MODEL_NAME = "h1b-salary-model"
-CHAMPION_ALIAS = "champion"
 SEMVER = "0.1.0"  # MLflow auto-numbers versions; the semantic version is stored as a tag
 
 SIGNATURE = ModelSignature(
     inputs=Schema(
         [ColSpec("string", c) for c in CATEGORICAL_FEATURES]
-        + [ColSpec("boolean", c, required=False) for c in BOOLEAN_FEATURES]
+        # Booleans are sent as float64 (1.0 / 0.0 / NaN): MLflow's boolean ColSpec cannot hold nulls.
+        + [ColSpec("double", c, required=False) for c in BOOLEAN_FEATURES]
     ),
     outputs=Schema([ColSpec("double")]),
 )
@@ -54,8 +53,11 @@ def register(
     artifact_root: Path = DEFAULT_ARTIFACT_ROOT,
     params: dict[str, Any] | None = None,
 ) -> str:
-    """Fit, log, register and promote the baseline. Returns the registry version."""
-    params = params or {}
+    """Fit, log and register the baseline; promote it only if the self-check passes. Returns the version."""
+    params = params or load_params()
+    model_name = params["serving"]["model_name"]
+    alias = params["serving"]["model_alias"]
+
     mlflow.set_tracking_uri(tracking_uri)
     client = MlflowClient(tracking_uri=tracking_uri)
     exp = client.get_experiment_by_name(EXPERIMENT_NAME)
@@ -84,25 +86,26 @@ def register(
             artifact_path="model",
             python_model=BaselinePyfunc(model),
             signature=SIGNATURE,
-            registered_model_name=REGISTERED_MODEL_NAME,
+            registered_model_name=model_name,
         )
 
     version = getattr(info, "registered_model_version", None)
     if version is None:
-        versions = client.search_model_versions(f"name='{REGISTERED_MODEL_NAME}'")
+        versions = client.search_model_versions(f"name='{model_name}'")
         version = max(int(v.version) for v in versions)
     version = str(version)
 
-    client.set_model_version_tag(REGISTERED_MODEL_NAME, version, "semver", SEMVER)
-    client.set_registered_model_alias(REGISTERED_MODEL_NAME, CHAMPION_ALIAS, version)
-
-    # Smoke test: load through the alias and reproduce the logged metrics.
-    loaded = mlflow.pyfunc.load_model(f"models:/{REGISTERED_MODEL_NAME}@{CHAMPION_ALIAS}")
-    check = regression_report(val["annual_wage"], loaded.predict(validate_features(val)))
+    # Self-check BEFORE promotion: reload this exact version and reproduce the logged metrics.
+    # If it fails, the alias still points at the previous model (or nothing).
+    loaded = mlflow.pyfunc.load_model(f"models:/{model_name}/{version}")
+    check = regression_report(val["annual_wage"], loaded.predict(to_model_input(val)))
     for name, value in metrics.items():
         if not np.isclose(check[name], value):
             raise RuntimeError(f"Registered model disagrees on {name}: {check[name]} vs {value}")
-    log.info("registered %s v%s (semver %s): %s", REGISTERED_MODEL_NAME, version, SEMVER, metrics)
+
+    client.set_model_version_tag(model_name, version, "semver", SEMVER)
+    client.set_registered_model_alias(model_name, alias, version)
+    log.info("registered %s v%s (semver %s) as @%s: %s", model_name, version, SEMVER, alias, metrics)
     return version
 
 
@@ -115,7 +118,7 @@ def main() -> None:
     val = pd.read_parquet(paths.processed / "val.parquet")  # the isolated test split is never touched here
     register(train, val, tracking_uri=tracking_uri, params=params)
     log.info("tracking URI: %s", tracking_uri)
-    log.info("model URI:    models:/%s@%s", REGISTERED_MODEL_NAME, CHAMPION_ALIAS)
+    log.info("model URI:    models:/%s@%s", params["serving"]["model_name"], params["serving"]["model_alias"])
 
 
 if __name__ == "__main__":

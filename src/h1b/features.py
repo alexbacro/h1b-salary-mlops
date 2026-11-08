@@ -58,3 +58,14 @@ def validate_features(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing feature columns: {missing}")
     return df[FEATURES].astype(DTYPES)
+
+
+def to_model_input(df: pd.DataFrame) -> pd.DataFrame:
+    """validate_features, then boolean columns as float64 (1.0 / 0.0 / NaN).
+
+    MLflow's `boolean` ColSpec cannot hold nulls, so the model signature declares these
+    columns as `double` (#8, item 1). Registration, the API and training all call this.
+    """
+    out = validate_features(df)
+    out[BOOLEAN_FEATURES] = out[BOOLEAN_FEATURES].astype("float64")
+    return out
