@@ -1,0 +1,80 @@
+# Local stack: MLflow tracking server + model registry, and the FastAPI service that serves
+# models:/h1b-salary-model@champion from it. See "Run the stack with Docker" in the README.
+#
+#   make up                  # build and start mlflow + api
+#   make register-docker     # register the baseline in the stack's MLflow, then restart the api
+#   make smoke               # GET /health and POST /predict against the running api
+#   make down                # stop (volumes are kept; `docker compose down -v` wipes the registry)
+
+# Fixed project name, so containers/volumes are h1b-salary-* whatever the checkout folder is called.
+name: h1b-salary
+
+x-image: &image
+  image: ${H1B_IMAGE:-h1b-salary:dev}
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+
+services:
+  mlflow:
+    <<: *image
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --workers=1                                   # SQLite backend: keep a single writer
+      - --backend-store-uri=sqlite:////mlflow/mlflow.db
+      - --artifacts-destination=/mlflow/artifacts     # clients upload/download through the server (mlflow-artifacts:/)
+      # MLflow 3 rejects unknown Host headers (DNS-rebinding protection); the API and the
+      # registration job reach it as "mlflow:5000", the browser as localhost:<MLFLOW_PORT>.
+      - --allowed-hosts=mlflow,mlflow:5000,localhost,localhost:${MLFLOW_PORT:-5001},127.0.0.1,127.0.0.1:${MLFLOW_PORT:-5001}
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5001}:5000"
+    volumes:
+      - mlflow-data:/mlflow                           # backend store (mlflow.db) + artifacts survive restarts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  api:
+    <<: *image
+    command: ["uvicorn", "h1b.serve:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    # /health answers even before a champion exists (model_loaded=false, /predict -> 503), so this
+    # checks that the process is up; `make smoke` checks that a model is actually loaded.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  # One-shot job, not started by `make up`: fits the median baseline on data/processed and
+  # registers it in this stack's MLflow as @champion. Run with `make register-docker`.
+  register:
+    <<: *image
+    profiles: ["jobs"]
+    command: ["python", "-m", "h1b.register_baseline"]
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      # train/val only; the holdout is never mounted. H1B_PROCESSED_DIR points elsewhere (e.g. from a worktree).
+      - ${H1B_PROCESSED_DIR:-./data/processed}:/app/data/processed:ro
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+volumes:
+  mlflow-data:

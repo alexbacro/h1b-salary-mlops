@@ -83,3 +83,25 @@ def test_alias_not_moved_when_self_check_fails(tmp_path, monkeypatch):
     client = MlflowClient(tracking_uri=uri)
     with pytest.raises(MlflowException):
         client.get_model_version_by_alias(MODEL_NAME, ALIAS)
+
+
+def test_tracking_server_chooses_artifact_location(tmp_path, monkeypatch):
+    """Against a tracking server the experiment must not point at a file:// path on the client."""
+    created = {}
+
+    class FakeClient:
+        def __init__(self, tracking_uri=None):
+            pass
+
+        def get_experiment_by_name(self, name):
+            return None
+
+        def create_experiment(self, name, artifact_location=None):
+            created["location"] = artifact_location
+            raise RuntimeError("stop after create_experiment")
+
+    monkeypatch.setattr(register_baseline, "MlflowClient", FakeClient)
+    monkeypatch.setattr(register_baseline.mlflow, "set_tracking_uri", lambda uri: None)
+    with pytest.raises(RuntimeError, match="stop after"):
+        register(_frame(), _frame(), tracking_uri="http://mlflow:5000", artifact_root=tmp_path)
+    assert created["location"] is None

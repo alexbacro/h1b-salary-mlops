@@ -1,0 +1,9 @@
+# What the Docker image installs: the serving/registry subset of requirements.txt.
+# Versions come from requirements.txt (passed with -c), so pins live in one place.
+numpy
+pandas
+pyarrow
+pyyaml
+mlflow
+fastapi
+uvicorn

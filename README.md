@@ -70,10 +70,34 @@ This writes:
 
 Fiscal years, filters and wage bounds are all set in [`params.yaml`](params.yaml).
 
+### Run the stack with Docker
+
+`docker-compose.yml` runs the MLflow tracking server (registry + artifact store) and the API that
+serves `models:/h1b-salary-model@champion` from it. Requires Docker with Compose v2, and `make data`
+for the registration step.
+
+```bash
+cp .env.example .env     # optional: change host ports (MLflow defaults to 5001, because macOS uses 5000)
+make up                  # build the image, start mlflow + api, wait until both are healthy
+make register-docker     # register the baseline in the stack's MLflow as @champion, then reload the api
+make smoke               # GET /health and POST /predict
+make logs                # follow the logs; `make down` stops the stack
+```
+
+- MLflow UI: http://localhost:5001. API docs: http://localhost:8000/docs.
+- Both services use one image (`docker/Dockerfile`, the serving subset of `requirements.txt`).
+- The registry (SQLite backend store and artifacts) lives in the `mlflow-data` volume, so it survives
+  `make down`. `docker compose down -v` wipes it.
+- The API loads the champion at startup. Until one is registered, `/health` shows `model_loaded: false`
+  and `/predict` returns 503. After moving `@champion`, restart the API (`docker compose restart api`).
+- The registration job mounts only `data/processed` (read-only). The holdout split is never mounted.
+
 ## Repository layout
 
 ```
 ├── params.yaml              # single source of pipeline configuration
+├── docker-compose.yml       # MLflow server + API (see "Run the stack with Docker")
+├── docker/                  # Dockerfile and the image's requirements
 ├── src/h1b/
 │   ├── config.py            # loads params.yaml, resolves paths
 │   ├── schema.py            # canonical columns + mapping of year-to-year header variants
