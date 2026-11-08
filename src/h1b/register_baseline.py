@@ -100,7 +100,7 @@ def register(
         )
         mlflow.log_metrics({f"val_{k}": v for k, v in metrics.items()})
         info = mlflow.pyfunc.log_model(
-            artifact_path="model",
+            name="model",
             python_model=BaselinePyfunc(model),
             signature=SIGNATURE,
             registered_model_name=model_name,
