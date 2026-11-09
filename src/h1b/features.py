@@ -92,10 +92,10 @@ def prepare_request(df: pd.DataFrame) -> pd.DataFrame:
     """
     # Imported here, not at the top: clean.py can then import add_derived_features from this
     # module later without creating a circular import.
-    from h1b.clean import normalize_soc, normalize_text
+    from h1b.clean import normalize_text, to_soc_2018
 
     out = df.copy()
-    out["soc_code"] = normalize_soc(out["soc_code"])
+    out["soc_code"] = to_soc_2018(out["soc_code"])
     out["worksite_state"] = out["worksite_state"].astype("string").str.upper().str.strip()
     for col in ["job_title", "employer_name", "worksite_city"]:
         out[col] = normalize_text(out[col])
