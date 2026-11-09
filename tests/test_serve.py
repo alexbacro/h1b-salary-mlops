@@ -1,6 +1,8 @@
 """API tests against a throwaway local MLflow registry (SQLite in tmp_path); no server or real model needed."""
 
 import mlflow
+import numpy as np
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from mlflow import MlflowClient
@@ -8,6 +10,7 @@ from mlflow.models import ModelSignature
 from mlflow.types import ColSpec, Schema
 
 from h1b.features import BOOLEAN_FEATURES, CATEGORICAL_FEATURES, FEATURES, REQUEST_FEATURES
+from h1b.register_baseline import register
 from h1b.serve import MAX_BATCH_SIZE, JobRecord, create_app
 
 MODEL_NAME = "test-salary-model"
@@ -143,3 +146,35 @@ def test_model_schema_mismatch_returns_422_with_reason(strict_champion):
     assert resp.status_code == 422
     assert resp.json()["detail"].startswith("Model rejected the input:")
     assert "not_a_feature" in resp.json()["detail"]  # MLflow's message names the problem column
+
+
+def test_serves_real_baseline_from_register(tmp_path, monkeypatch):
+    """End to end with #6's real register(): the registered baseline loads and accepts null full_time/naics_2."""
+    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+    n = 20
+    frame = pd.DataFrame(
+        {
+            "soc_major": ["15"] * n,
+            "naics_2": ["54"] * n,
+            "worksite_state": ["IL", "CA"] * (n // 2),
+            "soc_code": ["15-2051"] * n,
+            "worksite_city": ["CHICAGO"] * n,
+            "job_title": ["DATA SCIENTIST"] * n,
+            "employer_name": ["ACME CORP"] * n,
+            "full_time": [True] * n,
+            "annual_wage": [100_000.0, 150_000.0] * (n // 2),  # IL median 100k, CA median 150k
+        }
+    )
+    frame["log_wage"] = np.log(frame["annual_wage"])
+    params = {"serving": serving_cfg(), "split": {}, "seed": 42}
+    version = register(frame, frame, tracking_uri=uri, artifact_root=tmp_path / "mlruns", params=params)
+
+    # Raw lowercase state plus the two nullable fields: exercises prepare_request and the real signature together.
+    record = {**RECORD, "worksite_state": "ca", "full_time": None, "naics_2": None}
+    with TestClient(create_app(serving_cfg())) as client:
+        assert client.get("/health").json()["model_version"] == version
+        resp = client.post("/predict", json={"records": [record]})
+    mlflow.set_tracking_uri(None)
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["predictions"] == [pytest.approx(150_000)]  # the (SOC, CA) median
