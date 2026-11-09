@@ -1,7 +1,10 @@
 import pandas as pd
 import pytest
 
-from h1b.clean import clean, fiscal_year, normalize_soc, normalize_text, parse_wage
+from h1b.clean import clean, fiscal_year, normalize_soc, normalize_text, parse_wage, to_soc_2018
+from h1b.soc_crosswalk import ONET_OVERRIDES, SOC_2010_TO_2018
+
+from .conftest import raw_row
 
 
 def test_clean_applies_every_rule(raw_df, filters):
@@ -51,9 +54,39 @@ def test_clean_output_has_no_prevailing_wage_columns(raw_df, filters):
 
 
 def test_normalize_soc():
-    s = pd.Series(["15-1252.00", "151252", "15-1252", "1512", None])
-    assert normalize_soc(s).tolist()[:3] == ["15-1252"] * 3
-    assert normalize_soc(s).isna().tolist()[3:] == [True, True]
+    s = pd.Series(["15-1252.00", "151252", "15-1252", "15-1252.00.00", "1512", None])
+    assert normalize_soc(s).tolist()[:4] == ["15-1252"] * 4
+    assert normalize_soc(s).isna().tolist()[4:] == [True, True]
+
+
+def test_to_soc_2018_remaps_retired_2010_codes():
+    s = pd.Series(["15-1132.00", "15-1133", "15-1121.00", "15-1199.00", "15-1134.00"])
+    assert to_soc_2018(s).tolist() == ["15-1252", "15-1252", "15-1211", "15-1299", "15-1254"]
+
+
+def test_to_soc_2018_uses_onet_detail_when_it_names_the_occupation():
+    s = pd.Series(["15-1199.01", "15-1199.06", "29-1069.04", "15-1199.08"])
+    assert to_soc_2018(s).tolist() == ["15-1253", "15-1243", "29-1217", "15-1299"]  # .08 has no override
+
+
+def test_to_soc_2018_keeps_2018_codes_and_invalid_as_na():
+    s = pd.Series(["15-1252.00", "13-1199.00", "garbage", None])
+    out = to_soc_2018(s)
+    assert out.tolist()[:2] == ["15-1252", "13-1199"]  # 13-1199 is valid in both versions
+    assert out.isna().tolist()[2:] == [True, True]
+
+
+def test_crosswalk_targets_are_never_retired_codes():
+    targets = set(SOC_2010_TO_2018.values()) | set(ONET_OVERRIDES.values())
+    assert not targets & set(SOC_2010_TO_2018)  # one pass is enough; no chains
+
+
+def test_clean_reports_remapped_soc_codes(filters):
+    raw = pd.DataFrame([raw_row(), raw_row(CASE_NUMBER="2", SOC_CODE="15-1132.00")])
+    df, report = clean(raw, filters)
+    assert df.set_index("case_number").loc["2", "soc_code"] == "15-1252"
+    assert df.set_index("case_number").loc["2", "soc_major"] == "15"
+    assert report["soc_2010_remapped"] == 1
 
 
 def test_parse_wage():
