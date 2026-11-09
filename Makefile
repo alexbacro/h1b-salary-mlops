@@ -1,7 +1,8 @@
 # Convenience targets. Run `make help` to list them.
 PYTHON ?= python
+ARGS ?=
 
-.PHONY: help setup lint format test ingest clean-data split baseline register-baseline data drift
+.PHONY: help setup lint format test ingest clean-data split baseline register-baseline train data drift
 
 help:  ## Show this help
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -39,3 +40,6 @@ drift:  ## Evidently drift reports: train vs val (features and target) -> report
 
 register-baseline:  ## Register the median baseline in MLflow as h1b-salary-model@champion
 	$(PYTHON) -m h1b.register_baseline
+
+train:  ## FLAML AutoML on log_wage -> MLflow; promotes @champion only if it wins (e.g. ARGS="--time-budget 120")
+	$(PYTHON) -m h1b.train $(ARGS)
