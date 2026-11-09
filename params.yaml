@@ -26,4 +26,11 @@ serving:
   model_name: h1b-salary-model   # registry name agreed by the team
   model_alias: champion          # the API serves whichever version holds this alias
 
+# AutoML training (h1b.train). The MLflow server address comes from MLFLOW_TRACKING_URI, not from here.
+training:
+  time_budget_s: 300            # FLAML search budget in seconds
+  estimator_list: ["lgbm", "xgboost", "rf", "extra_tree"]
+  metric: mse                   # on log_wage; RMSE is monotone in MSE, so the same model wins. We report log-RMSE ourselves
+  max_train_rows: null          # e.g. 200000 for a quick smoke run
+
 seed: 42

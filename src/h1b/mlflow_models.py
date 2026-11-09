@@ -21,3 +21,14 @@ class BaselinePyfunc(mlflow.pyfunc.PythonModel):
 
     def predict(self, context, model_input: pd.DataFrame, params=None) -> np.ndarray:
         return self.model.predict(model_input)
+
+
+class FlamlPyfunc(mlflow.pyfunc.PythonModel):
+    """AutoML model trained on log_wage. Returns annual wage in USD, like every registered model (#8, item 2)."""
+
+    def __init__(self, encoder, automl):
+        self.encoder = encoder
+        self.automl = automl
+
+    def predict(self, context, model_input: pd.DataFrame, params=None) -> np.ndarray:
+        return np.exp(self.automl.predict(self.encoder.transform(model_input)))
