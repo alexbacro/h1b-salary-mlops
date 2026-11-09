@@ -7,3 +7,4 @@ pyarrow>=15
 python-calamine>=0.2   # fast .xlsx reader used by pandas (engine="calamine")
 pyyaml>=6
 evidently>=0.7.23,<0.8   # data drift reports (monitoring stage)
+mlflow>=3,<4   # experiment tracking + model registry (training stage)
