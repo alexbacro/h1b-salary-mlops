@@ -1,5 +1,8 @@
 # Convenience targets. Run `make help` to list them.
 PYTHON ?= python
+COMPOSE ?= docker compose
+-include .env   # optional overrides shared with docker compose (see .env.example)
+API_PORT ?= 8000
 
 .PHONY: help setup lint format test ingest clean-data split baseline register-baseline data drift
 
@@ -39,3 +42,25 @@ drift:  ## Evidently drift reports: train vs val (features and target) -> report
 
 register-baseline:  ## Register the median baseline in MLflow as h1b-salary-model@champion
 	$(PYTHON) -m h1b.register_baseline
+
+# ── Docker compose stack (MLflow server + API); see "Run the stack with Docker" in the README ──
+.PHONY: up down logs register-docker smoke
+
+up:  ## Build and start MLflow (localhost:5001) + API (localhost:8000) in Docker
+	$(COMPOSE) up -d --build --wait mlflow api
+
+down:  ## Stop the stack (keeps the registry volume; add -v by hand to wipe it)
+	$(COMPOSE) down
+
+logs:  ## Follow the stack's logs
+	$(COMPOSE) logs -f --tail=100
+
+register-docker:  ## Register the baseline in the stack's MLflow (needs make data), then reload the API
+	$(COMPOSE) run --rm register
+	$(COMPOSE) restart api
+	$(COMPOSE) up -d --wait api
+
+smoke:  ## GET /health and POST /predict against the running API
+	curl -fsS http://localhost:$(API_PORT)/health; echo
+	curl -fsS -X POST http://localhost:$(API_PORT)/predict -H 'Content-Type: application/json' \
+	  -d '{"records": [{"soc_code": "15-1252", "worksite_state": "CA", "worksite_city": "San Jose", "job_title": "Software Engineer", "employer_name": "Acme Corp", "naics_2": "54", "full_time": null}]}'; echo
