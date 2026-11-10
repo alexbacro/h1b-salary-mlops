@@ -39,3 +39,24 @@ drift:  ## Evidently drift reports: train vs val (features and target) -> report
 
 register-baseline:  ## Register the median baseline in MLflow as h1b-salary-model@champion
 	$(PYTHON) -m h1b.register_baseline
+
+# ── Airflow (docker-compose.airflow.yml); start the MLflow stack first for the register/train tasks ──
+AIRFLOW_COMPOSE ?= docker compose -f docker-compose.airflow.yml
+.PHONY: airflow-up airflow-down airflow-logs airflow-check airflow-trigger
+
+airflow-up:  ## Build and start Airflow on http://localhost:8080 (waits until healthy)
+	$(AIRFLOW_COMPOSE) up -d --build --wait airflow
+
+airflow-down:  ## Stop Airflow (keeps run history; `docker compose -f docker-compose.airflow.yml down -v` wipes it)
+	$(AIRFLOW_COMPOSE) down
+
+airflow-logs:  ## Follow Airflow's logs
+	$(AIRFLOW_COMPOSE) logs -f --tail=100 airflow
+
+airflow-check:  ## In the running container: DAG import errors (expect none) and the h1b_pipeline tasks
+	$(AIRFLOW_COMPOSE) exec airflow airflow dags list-import-errors
+	$(AIRFLOW_COMPOSE) exec airflow airflow tasks list h1b_pipeline
+
+airflow-trigger:  ## Start one run of h1b_pipeline (unpauses it first); watch it at http://localhost:8080
+	$(AIRFLOW_COMPOSE) exec airflow airflow dags unpause h1b_pipeline
+	$(AIRFLOW_COMPOSE) exec airflow airflow dags trigger h1b_pipeline
