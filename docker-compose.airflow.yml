@@ -1,0 +1,50 @@
+# Airflow for the h1b pipeline DAG (dags/). Kept in its own file so it can be developed alongside
+# docker-compose.yml (MLflow server + API, PR #10) without editing it:
+#
+#   make airflow-up          # build and start Airflow on http://localhost:8080
+#   make airflow-down        # stop it (run history is kept in the airflow-home volume)
+#
+# Same project name as docker-compose.yml, so both stacks share one network and the DAG's
+# register/train tasks reach the tracking server as http://mlflow:5000. Start the MLflow stack
+# first (`make up`); the data tasks (ingest -> baseline) don't need it.
+#
+# TODO: once docker-compose.yml (PR #10) is in main, move the `airflow` service and the
+# `airflow-home` volume into it and delete this file, so one `make up` starts the whole stack.
+# Kept separate for now so this PR doesn't depend on or conflict with #10.
+name: h1b-salary
+
+services:
+  airflow:
+    image: ${H1B_AIRFLOW_IMAGE:-h1b-airflow:dev}
+    build:
+      context: .
+      dockerfile: docker/airflow.Dockerfile
+    # One container runs the scheduler, DAG processor, triggerer and API server with a SQLite
+    # metadata DB. Enough for a single-user local pipeline; not a production setup.
+    command: ["standalone"]
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # Local only (port bound to 127.0.0.1): skip the login page instead of generating a password.
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+    ports:
+      - "127.0.0.1:${AIRFLOW_PORT:-8080}:8080"
+    volumes:
+      - airflow-home:/opt/airflow                      # metadata DB + task logs survive restarts
+      - ./dags:/opt/airflow/dags:ro                    # edit DAGs without rebuilding the image
+      # The pipeline's data directories, at the paths h1b.config resolves inside the image (/opt/h1b).
+      - ./data/raw:/opt/h1b/data/raw:ro                # DOL downloads are input only
+      - ./data/interim:/opt/h1b/data/interim
+      - ./data/processed:/opt/h1b/data/processed
+      - ./data/holdout:/opt/h1b/data/holdout           # written by the split task; never read by train
+      - ./reports:/opt/h1b/reports
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v2/monitor/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  airflow-home:
