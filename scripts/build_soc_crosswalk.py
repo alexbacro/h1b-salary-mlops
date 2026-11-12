@@ -1,4 +1,4 @@
-"""Regenerate src/h1b/soc_crosswalk.py from the BLS 2010 -> 2018 SOC crosswalk.
+"""Regenerate src/h1b/soc_crosswalk.py from the BLS and O*NET 2010 -> 2018 crosswalks.
 
 FY2022 LCA filings mostly use 2010 SOC codes, FY2023 onward use 2018 codes, so the same
 job appears under two codes in train. This script builds the lookup that clean.py uses to
@@ -10,16 +10,21 @@ Rules:
   - A retired code with one 2018 target maps to it.
   - A retired code that BLS split into several 2018 codes maps to the target with the same
     title if there is one (e.g. "Web Developers" -> "Web Developers"), otherwise to the target
-    most common in FY2023 filings (train split, already on 2018 codes). Ties or no FY2023
-    rows: the first target BLS lists.
-  - O*NET detail codes whose title names one of the BLS targets map straight to it
-    (ONET_OVERRIDES below), e.g. 15-1199.01 "Software QA Engineers and Testers" -> 15-1253.
+    most common in FY2023 filings (raw SOC codes in data/interim/*FY2023*, which are already on
+    2018 codes). Ties or no FY2023 rows: the first target BLS lists.
+  - O*NET detail codes override the 6-digit lookup: any O*NET-SOC 2010 code whose O*NET-SOC 2019
+    crosswalk has a single 6-digit target that differs from the lookup above gets that target
+    (ONET_OVERRIDES), e.g. 15-1199.08 Business Intelligence Analysts -> 15-2051 Data Scientists.
+    This can go beyond the BLS targets (BLS doesn't list 15-2051 for 15-1199) and also covers
+    detail codes whose parent is still valid in 2018 (17-2199.02 Validation Engineers -> 17-2112).
 
-The BLS file blocks scripted downloads; get it in a browser from
-https://www.bls.gov/soc/2018/soc_2010_to_2018_crosswalk.xlsx
+Downloads (keep them outside the repo):
+  - BLS: https://www.bls.gov/soc/2018/soc_2010_to_2018_crosswalk.xlsx (blocks scripted
+    downloads; get it in a browser)
+  - O*NET: https://www.onetcenter.org/taxonomy/2019/walk/2010_to_2019_Crosswalk.csv?fmt=csv
 
 Usage:
-    python scripts/build_soc_crosswalk.py path/to/soc_2010_to_2018_crosswalk.xlsx
+    python scripts/build_soc_crosswalk.py path/to/soc_2010_to_2018_crosswalk.xlsx path/to/2010_to_2019_Crosswalk.csv
 """
 
 from __future__ import annotations
@@ -29,20 +34,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from h1b.clean import normalize_soc
 from h1b.config import REPO_ROOT, get_paths, load_params
 
 OUT = REPO_ROOT / "src" / "h1b" / "soc_crosswalk.py"
-
-# O*NET-SOC 2010 detail code -> 2018 SOC code, only where the O*NET title matches a BLS target.
-ONET_OVERRIDES = {
-    "15-1199.01": "15-1253",  # Software Quality Assurance Engineers and Testers
-    "15-1199.06": "15-1243",  # Database Architects
-    "29-1069.02": "29-1213",  # Dermatologists
-    "29-1069.04": "29-1217",  # Neurologists
-    "29-1069.06": "29-1241",  # Ophthalmologists
-    "29-1069.07": "29-1222",  # Pathologists
-    "29-1069.10": "29-1224",  # Radiologists
-}
 
 
 def read_bls(path: Path) -> pd.DataFrame:
@@ -51,6 +46,11 @@ def read_bls(path: Path) -> pd.DataFrame:
     df = raw.iloc[header + 1 :, :4].set_axis(["soc_2010", "title_2010", "soc_2018", "title_2018"], axis=1)
     df = df.dropna(subset=["soc_2010", "soc_2018"])
     return df.apply(lambda c: c.str.strip().str.replace(r"\s*\(#+\)$", "", regex=True))
+
+
+def read_onet(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, dtype=str).iloc[:, :4]
+    return df.set_axis(["onet_2010", "title_2010", "onet_2019", "title_2019"], axis=1).apply(lambda c: c.str.strip())
 
 
 def build(bls: pd.DataFrame, fy2023_counts: pd.Series) -> pd.DataFrame:
@@ -63,7 +63,25 @@ def build(bls: pd.DataFrame, fy2023_counts: pd.Series) -> pd.DataFrame:
     return best.drop_duplicates("soc_2010")
 
 
-def render(table: pd.DataFrame) -> str:
+def onet_overrides(onet: pd.DataFrame, lookup: dict[str, str]) -> pd.DataFrame:
+    """O*NET 2010 detail codes whose single 2019 6-digit target differs from the 6-digit lookup."""
+    df = onet.assign(soc_2019=onet["onet_2019"].str[:7], parent=onet["onet_2010"].str[:7])
+    per_code = df.groupby("onet_2010").agg(
+        title_2010=("title_2010", "first"),
+        parent=("parent", "first"),
+        targets=("soc_2019", lambda s: sorted(set(s))),
+        title_2019=("title_2019", "first"),
+    )
+    per_code["default"] = per_code["parent"].map(lambda p: lookup.get(p, p))
+    single = per_code["targets"].str.len() == 1
+    moved = per_code.apply(lambda r: r["default"] not in r["targets"], axis=1)
+    if (moved & ~single).any():  # none in the 2019 crosswalk; fail loudly if a new release adds one
+        raise ValueError(f"Ambiguous O*NET splits: {per_code.index[moved & ~single].tolist()}")
+    out = per_code[moved].assign(soc_2018=lambda d: d["targets"].str[0])
+    return out.reset_index()[["onet_2010", "title_2010", "soc_2018", "title_2019"]]
+
+
+def render(table: pd.DataFrame, overrides: pd.DataFrame) -> str:
     lines = [
         '"""SOC 2010 -> 2018 lookup used by clean.py. Generated by scripts/build_soc_crosswalk.py; do not edit."""',
         "",
@@ -79,21 +97,33 @@ def render(table: pd.DataFrame) -> str:
     lines += [
         "}",
         "",
-        "# O*NET 2010 detail code -> 2018 code, applied before SOC_2010_TO_2018.",
+        "# O*NET-SOC 2010 detail code -> 2018 code where the O*NET 2019 crosswalk disagrees with the",
+        "# 6-digit lookup. Applied before SOC_2010_TO_2018.",
         "ONET_OVERRIDES: dict[str, str] = {",
     ]
-    lines += [f'    "{k}": "{v}",' for k, v in ONET_OVERRIDES.items()]
+    for r in overrides.itertuples():
+        lines.append(f'    "{r.onet_2010}": "{r.soc_2018}",  # {r.title_2010} -> {r.title_2019}')
     lines += ["}", ""]
     return "\n".join(lines)
 
 
+def fy2023_counts() -> pd.Series:
+    """Raw FY2023 SOC counts. Read from data/interim (not train.parquet) so regenerating doesn't depend on itself."""
+    files = sorted(get_paths(load_params()).interim.glob("*FY2023*.parquet"))
+    if not files:
+        raise FileNotFoundError("No FY2023 files in data/interim. Run `make ingest` first.")
+    raw = pd.concat([pd.read_parquet(f, columns=["SOC_CODE"]) for f in files], ignore_index=True)
+    return normalize_soc(raw["SOC_CODE"]).value_counts()
+
+
 def main() -> None:
     bls = read_bls(Path(sys.argv[1]))
-    train = pd.read_parquet(get_paths(load_params()).processed / "train.parquet", columns=["soc_code", "fiscal_year"])
-    counts = train.loc[train["fiscal_year"] == 2023, "soc_code"].value_counts()
-    table = build(bls, counts)
-    OUT.write_text(render(table))
-    print(f"wrote {OUT}: {len(table)} retired codes ({(table['n_targets'] > 1).sum()} split)")
+    table = build(bls, fy2023_counts())
+    lookup = dict(zip(table["soc_2010"], table["soc_2018"], strict=True))
+    overrides = onet_overrides(read_onet(Path(sys.argv[2])), lookup)
+    OUT.write_text(render(table, overrides))
+    n_split = (table["n_targets"] > 1).sum()
+    print(f"wrote {OUT}: {len(table)} retired codes ({n_split} split), {len(overrides)} O*NET overrides")
 
 
 if __name__ == "__main__":
