@@ -37,7 +37,7 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 | Data ingestion, validation, baselines | pandas, Parquet | ✅ `src/h1b/` |
 | Orchestration | Airflow DAG | ⏳ planned |
 | Experiment tracking & registry | MLflow + FLAML AutoML | ⏳ planned |
-| Serving | FastAPI + Docker Compose | ⏳ planned |
+| Serving | FastAPI + Docker Compose | ✅ FastAPI skeleton in `src/h1b/serve.py`; Docker planned |
 | Monitoring & drift simulation | Evidently | ⏳ planned |
 | CI | GitHub Actions (ruff + pytest) | ✅ `.github/workflows/ci.yml` |
 
@@ -69,6 +69,24 @@ This writes:
 - `reports/baseline_metrics_val.json`: the baseline MAE / MAPE / log-RMSE to beat
 
 Fiscal years, filters and wage bounds are all set in [`params.yaml`](params.yaml).
+
+### Run the API
+
+The service loads whichever model version holds `h1b-salary-model@champion` in the MLflow registry
+(name and alias under `serving:` in `params.yaml`), so register a model first:
+
+```bash
+make register-baseline   # registers the median baseline and sets @champion (needs `make data`)
+make serve               # http://127.0.0.1:8000; interactive docs at /docs
+```
+
+- `GET /health` reports whether a model is loaded and which version is served.
+- `POST /predict` takes `{"records": [...]}` (1 to 10,000 records with the columns in
+  `REQUEST_FEATURES`, `src/h1b/features.py`) and returns one predicted annual wage in USD per record.
+  Raw values such as `15-1252.00` or `ca` are normalized the same way as the training data, and
+  `soc_major` is derived from `soc_code` (sending it is rejected).
+- With no champion registered the service still starts, and `/predict` returns 503.
+- The registry defaults to `mlflow.db` in the repo root; set `MLFLOW_TRACKING_URI` to use an MLflow server.
 
 ## Repository layout
 
