@@ -28,8 +28,10 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
                                                     └─► features ─► FLAML AutoML ─► MLflow tracking
                                                                                     + Model Registry
                                                                                         │
-                    Evidently dashboard ◄── prediction logs ◄── FastAPI /predict (Docker)
-                    (clean vs. drifted test data)
+    FY25 test data (clean + corrupted) ──► monitoring script ──► FastAPI /predict (Docker)
+                                                   │                      │
+                                                   └─► Evidently ◄── predictions
+    (clean vs. corrupted FY25 batches; features rebuilt locally with prepare_request)
 ```
 
 | Stage | Tooling | Status |
