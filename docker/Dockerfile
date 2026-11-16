@@ -9,13 +9,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     MLFLOW_DISABLE_AGENT_HINT=1
 
+# LightGBM/xgboost (used by FLAML models) need the OpenMP runtime, which the slim Debian base lacks.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Dependencies first so code changes don't reinstall them. requirements.txt is used only as a
 # constraints file: the image gets the serving subset (no Evidently, no Excel reader), at the
 # versions the rest of the repo pins.
+# pip rejects extras in a constraints file ("Constraints cannot have extras"), and requirements.txt
+# lists flaml[automl] once #13 lands, so the extras are stripped before using it with -c.
 COPY requirements.txt docker/requirements-serve.txt ./
-RUN pip install -r requirements-serve.txt -c requirements.txt
+RUN sed -E 's/\[[^]]*\]//' requirements.txt > constraints.txt \
+    && pip install -r requirements-serve.txt -c constraints.txt
 
 # Editable install on purpose: h1b.config resolves params.yaml and data/ relative to the repo
 # root (/app), and pickled models import h1b.* when MLflow loads them.
