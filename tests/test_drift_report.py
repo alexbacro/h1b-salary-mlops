@@ -1,12 +1,15 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from h1b.drift_report import (
     CAT,
     COLS,
     bucket,
+    drift_scores,
     load,
     top_values,
+    unseen_alerts,
     unseen_share,
     vocabulary,
 )
@@ -58,3 +61,14 @@ def test_unseen_share_counts_values_missing_from_vocabulary():
 def test_vocabulary_includes_missing_label(tmp_path):
     vocab = vocabulary(_write_parquet(tmp_path), ["naics_2"])
     assert vocab["naics_2"] == {"54", "missing"}
+
+
+def test_drift_scores_raises_when_no_value_drift_metrics():
+    with pytest.raises(RuntimeError, match="no ValueDrift"):
+        drift_scores([{"metric_name": "SomethingElse()", "value": 1.0}])
+
+
+def test_unseen_alerts_lists_columns_over_their_limit():
+    unseen = {"soc_code": 0.0, "job_title": 0.24, "employer_name": 0.1}
+    limits = {"soc_code": 0.02, "job_title": 0.22, "employer_name": 0.15, "worksite_city": 0.5}
+    assert unseen_alerts(unseen, limits) == ["job_title"]

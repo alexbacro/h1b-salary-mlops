@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
+from h1b.drift_report import drift_scores, flagged
 from h1b.drift_simulation import (
-    drift_scores,
-    flagged,
+    SCENARIOS,
     full_time_shift,
     swap_title_employer,
     unseen_names,
@@ -43,6 +43,18 @@ def test_zero_fraction_changes_nothing():
         pd.testing.assert_frame_equal(fn(df, np.random.default_rng(0), frac=0.0), df)
 
 
+def test_partial_fraction_changes_about_that_share():
+    out = unseen_soc(_df(1000), np.random.default_rng(0), frac=0.3)
+    changed = (out["soc_code"] == "99-9999").mean()
+    assert 0.25 < changed < 0.35
+
+
+def test_same_seed_gives_same_corruption():
+    a = unseen_names(_df(200), np.random.default_rng(42))
+    b = unseen_names(_df(200), np.random.default_rng(42))
+    pd.testing.assert_frame_equal(a, b)
+
+
 def test_full_time_shift():
     out = full_time_shift(_df(), np.random.default_rng(0), frac=1.0)
     assert set(out["full_time"]) == {"False"}
@@ -59,6 +71,11 @@ def test_wage_shift_adds_delta_and_keeps_input():
     out = wage_shift(df, delta=0.3)
     assert np.allclose(out["log_wage"], 11.8)
     assert np.allclose(df["log_wage"], 11.5)
+
+
+def test_expected_columns_are_among_the_columns_checked():
+    for name, (_, columns, expected) in SCENARIOS.items():
+        assert expected <= set(columns), name
 
 
 def test_drift_scores_and_flagged_parse_evidently_names():
