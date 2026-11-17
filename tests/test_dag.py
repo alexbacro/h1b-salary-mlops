@@ -36,6 +36,11 @@ def test_dag_is_manual_and_does_not_backfill(dag):
     assert dag.catchup is False
 
 
+def test_only_one_run_at_a_time(dag):
+    # Concurrent runs would write the same data/processed/*.parquet files.
+    assert dag.max_active_runs == 1
+
+
 def test_every_stage_uses_the_project_interpreter(dag):
     for task in dag.tasks:
         assert "-m h1b." in task.bash_command
@@ -45,3 +50,5 @@ def test_register_baseline_is_a_skippable_bootstrap_and_train_still_runs(dag):
     assert dag.get_task("register_baseline").skip_on_exit_code == [99]
     assert dag.get_task("train").trigger_rule == "none_failed"
     assert "--promote if-better" in dag.get_task("train").bash_command
+    assert dag.get_task("train").retries == 0  # a retry would repeat the whole FLAML search
+    assert dag.get_task("ingest").retries == 1

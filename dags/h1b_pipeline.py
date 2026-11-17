@@ -30,12 +30,15 @@ SKIP_EXIT_CODE = 99
 
 # Exits 0 if no model holds the serving alias (so the baseline should be registered), 99 if one does.
 # Any other error (e.g. MLflow unreachable) exits non-zero and fails the task instead of skipping it.
-NO_CHAMPION_CHECK = f"""import sys
+# The fallback store is the same as h1b.register_baseline's, so the check and the registration agree.
+NO_CHAMPION_CHECK = f"""import os
+import sys
 from mlflow import MlflowClient
-from h1b.config import load_params
+from h1b.config import DEFAULT_TRACKING_URI, load_params
 
 serving = load_params()["serving"]
-models = MlflowClient().search_registered_models(filter_string=f"name='{{serving['model_name']}}'")
+client = MlflowClient(os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI))
+models = client.search_registered_models(filter_string=f"name='{{serving['model_name']}}'")
 has_champion = bool(models) and serving["model_alias"] in models[0].aliases
 print("champion exists:", has_champion)
 sys.exit({SKIP_EXIT_CODE} if has_champion else 0)"""
@@ -58,6 +61,8 @@ with DAG(
     schedule=None,
     start_date=datetime(2026, 1, 1),
     catchup=False,
+    # One run at a time: two concurrent runs would write the same data/processed/*.parquet files.
+    max_active_runs=1,
     default_args={"retries": 1, "retry_delay": timedelta(minutes=2)},
     tags=["h1b", "mlops"],
     doc_md=__doc__,
@@ -76,6 +81,9 @@ with DAG(
         f"{H1B_PYTHON} -m h1b.train --promote if-better",
         # Run after register_baseline whether it registered (success) or was skipped; stop if it failed.
         trigger_rule="none_failed",
+        # No retry: it would repeat the whole FLAML search, and real failures (out of memory, a bug)
+        # fail the same way the second time.
+        retries=0,
     )
 
     ingest >> clean >> split >> baseline >> register_baseline >> train

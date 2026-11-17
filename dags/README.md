@@ -26,7 +26,9 @@ always do the same thing. The DAG holds no pipeline logic of its own; settings c
 - **`train` runs whether `register_baseline` succeeded or was skipped** (`trigger_rule="none_failed"`), and
   stops if it failed.
 - The DAG is triggered manually (`schedule=None`, no backfill): DOL publishes new files quarterly, and they
-  are downloaded by hand. Each task retries once after 2 minutes.
+  are downloaded by hand. Only one run at a time (`max_active_runs=1`), since runs write the same files.
+- Each task retries once after 2 minutes, except `train`: a retry would repeat the whole FLAML search, and
+  real failures (out of memory, a bug) usually fail the same way twice.
 
 ## How the tasks run
 
@@ -40,7 +42,8 @@ Airflow pins many libraries (pydantic, sqlalchemy, ...) that can clash with mlfl
 keeping the environments apart avoids that.
 
 `data/` and `reports/` are mounted from the repo, so the DAG reads and writes the same files as `make data`
-(`data/raw` is read-only). `dags/` is mounted too, so DAG edits are picked up without rebuilding the image.
+(`data/raw` is read-only). `dags/` and `params.yaml` are mounted too (read-only), so DAG and config edits
+apply on the next run without rebuilding the image. Code changes in `src/` do need a rebuild: `make airflow-up`.
 The register and train tasks reach the MLflow server at `http://mlflow:5000`; the compose file uses the same
 project name as `docker-compose.yml`, so both stacks share one network.
 
@@ -69,16 +72,17 @@ champion at startup and keeps serving the previous version until it restarts.
 
 - `tests/test_dag.py` checks that the DAG loads without import errors, the task order, the manual schedule,
   the bootstrap exit code and `train`'s trigger rule. Airflow is not in `requirements-dev.txt`, so CI
-  **skips** these tests; run `pytest tests/test_dag.py` in an environment that has Airflow 3.3 installed.
+  **skips** these tests. To run them in an environment with only Airflow 3.3 installed, skip the shared
+  fixtures (`tests/conftest.py` needs pandas): `pytest --noconftest tests/test_dag.py`.
 - `make airflow-check` runs the same import check inside the running container.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
-| `register_baseline` fails with a connection error | The MLflow stack isn't running: `make up` first |
+| `register_baseline` fails with a connection error (within about a minute) | The MLflow stack isn't running: `make up` first |
 | `train` fails with `No module named h1b.train` | Training (#13) isn't in this branch yet |
-| `train` is killed with exit code 137 | Docker ran out of memory: raise it in Docker Desktop ▸ Settings ▸ Resources, or set `training.max_train_rows` in `params.yaml` (added by #13) |
+| `train` is killed with exit code 137 | Docker ran out of memory: raise it in Docker Desktop ▸ Settings ▸ Resources, or set `training.max_train_rows` in `params.yaml` (added by #13; applies on the next run, no rebuild) |
 | The API still serves the old version | Restart it after promotion: `docker compose restart api` |
 | A DAG edit doesn't show in the UI | Airflow re-parses `dags/` periodically; wait about a minute or run `make airflow-check` |
 
@@ -87,7 +91,8 @@ champion at startup and keeps serving the previous version until it restarts.
 | Variable | Default | Purpose |
 |---|---|---|
 | `AIRFLOW_PORT` | `8080` | Host port of the Airflow UI |
-| `MLFLOW_TRACKING_URI` | `http://mlflow:5000` | Registry used by `register_baseline` and `train` |
+| `MLFLOW_TRACKING_URI` | `http://mlflow:5000` | Registry used by `register_baseline` and `train` (outside Docker, the repo's `mlflow.db`) |
+| `MLFLOW_HTTP_REQUEST_MAX_RETRIES` | `2` | How often MLflow retries an unreachable server before the task fails |
 | `H1B_PYTHON` / `H1B_ROOT` | `/opt/h1b-venv/bin/python` / `/opt/h1b` | Interpreter and project root the tasks use (override to run the DAG outside the image) |
 
 ## Follow-ups

@@ -24,6 +24,9 @@ services:
     command: ["standalone"]
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      # MLflow's default HTTP retries take ~4 minutes to give up when the server is down; with 2
+      # retries a forgotten `make up` turns register_baseline red in under a minute.
+      MLFLOW_HTTP_REQUEST_MAX_RETRIES: "2"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       # Local only (port bound to 127.0.0.1): skip the login page instead of generating a password.
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
@@ -32,6 +35,7 @@ services:
     volumes:
       - airflow-home:/opt/airflow                      # metadata DB + task logs survive restarts
       - ./dags:/opt/airflow/dags:ro                    # edit DAGs without rebuilding the image
+      - ./params.yaml:/opt/h1b/params.yaml:ro          # config edits apply on the next run, no rebuild (src/ still needs one)
       # The pipeline's data directories, at the paths h1b.config resolves inside the image (/opt/h1b).
       - ./data/raw:/opt/h1b/data/raw:ro                # DOL downloads are input only
       - ./data/interim:/opt/h1b/data/interim
