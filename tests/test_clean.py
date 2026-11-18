@@ -65,8 +65,14 @@ def test_to_soc_2018_remaps_retired_2010_codes():
 
 
 def test_to_soc_2018_uses_onet_detail_when_it_names_the_occupation():
-    s = pd.Series(["15-1199.01", "15-1199.06", "29-1069.04", "15-1199.08"])
-    assert to_soc_2018(s).tolist() == ["15-1253", "15-1243", "29-1217", "15-1299"]  # .08 has no override
+    s = pd.Series(["15-1199.01", "15-1199.06", "29-1069.04", "15-1199.08", "151199.08", "15-1199.00"])
+    assert to_soc_2018(s).tolist() == ["15-1253", "15-1243", "29-1217", "15-2051", "15-2051", "15-1299"]
+
+
+def test_to_soc_2018_overrides_detail_codes_under_parents_still_valid_in_2018():
+    # 17-2199 still exists in 2018, but O*NET moved Validation Engineers (.02) to Industrial Engineers.
+    s = pd.Series(["17-2199.02", "17-2199.00", "13-2051.00"])
+    assert to_soc_2018(s).tolist() == ["17-2112", "17-2199", "13-2051"]
 
 
 def test_to_soc_2018_keeps_2018_codes_and_invalid_as_na():
