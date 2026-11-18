@@ -82,11 +82,13 @@ def normalize_soc(s: pd.Series) -> pd.Series:
 def to_soc_2018(raw: pd.Series) -> pd.Series:
     """Normalize SOC codes and move retired 2010 codes onto 2018 ones (see scripts/build_soc_crosswalk.py).
 
-    An O*NET detail code that names a 2018 occupation wins ('15-1199.01' QA testers -> '15-1253');
-    otherwise the 6-digit code goes through SOC_2010_TO_2018. Codes valid in 2018 pass through unchanged.
+    An O*NET detail code that O*NET moved to another occupation wins ('15-1199.08' Business Intelligence
+    Analysts -> '15-2051' Data Scientists); otherwise the 6-digit code goes through SOC_2010_TO_2018.
+    Codes valid in 2018 pass through unchanged.
     """
     soc = normalize_soc(raw)
-    detail = raw.astype("string").str.extract(r"^(\d{2}-\d{4}\.\d{2})")[0]
+    parts = raw.astype("string").str.extract(r"^(\d{2})-?(\d{4})\.(\d{2})")  # '15-1199.08' or '151199.08'
+    detail = parts[0] + "-" + parts[1] + "." + parts[2]
     return detail.map(ONET_OVERRIDES).fillna(soc.replace(SOC_2010_TO_2018)).astype("string")
 
 
