@@ -1,5 +1,8 @@
 # Convenience targets. Run `make help` to list them.
 PYTHON ?= python
+COMPOSE ?= docker compose
+-include .env   # optional overrides shared with docker compose (see .env.example)
+API_PORT ?= 8000
 
 .PHONY: help setup lint format test ingest clean-data split baseline register-baseline data drift drift-sim serve
 
@@ -46,3 +49,28 @@ drift-sim:  ## Corrupt val in several ways and check Evidently flags it -> repor
 # Bound to 127.0.0.1 so the dev server is not exposed on the network; Docker sets its own host.
 serve:  ## FastAPI service on http://127.0.0.1:8000 (registry: MLFLOW_TRACKING_URI, else ./mlflow.db)
 	$(PYTHON) -m uvicorn h1b.serve:app --host 127.0.0.1 --port 8000
+
+# ── Docker compose stack (MLflow server + API); see "Run the stack with Docker" in the README ──
+.PHONY: up down logs register-docker smoke
+
+# mlflow and api share one image tag. Build it once (via api) before starting: with `up --build`
+# both services build and race to export the same tag, and a fresh machine fails with "already exists".
+up:  ## Build and start MLflow (localhost:5001) + API (localhost:8000) in Docker
+	$(COMPOSE) build api
+	$(COMPOSE) up -d --wait mlflow api
+
+down:  ## Stop the stack (keeps the registry volume; add -v by hand to wipe it)
+	$(COMPOSE) down
+
+logs:  ## Follow the stack's logs
+	$(COMPOSE) logs -f --tail=100
+
+register-docker:  ## Register the baseline in the stack's MLflow (needs make data), then reload the API
+	$(COMPOSE) run --rm register
+	$(COMPOSE) restart api
+	$(COMPOSE) up -d --wait api
+
+smoke:  ## GET /health and POST /predict against the running API
+	curl -fsS http://localhost:$(API_PORT)/health; echo
+	curl -fsS -X POST http://localhost:$(API_PORT)/predict -H 'Content-Type: application/json' \
+	  -d '{"records": [{"soc_code": "15-1252", "worksite_state": "CA", "worksite_city": "San Jose", "job_title": "Software Engineer", "employer_name": "Acme Corp", "naics_2": "54", "full_time": null}]}'; echo
