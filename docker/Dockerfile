@@ -3,11 +3,13 @@
 # one set of pinned dependencies, and the API can unpickle models because `h1b` is installed.
 FROM python:3.11-slim
 
+# GIT_PYTHON_REFRESH=quiet: the image has no git, so MLflow's GitPython import would warn "Bad git executable".
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    MLFLOW_DISABLE_AGENT_HINT=1
+    MLFLOW_DISABLE_AGENT_HINT=1 \
+    GIT_PYTHON_REFRESH=quiet
 
 # LightGBM/xgboost (used by FLAML models) need the OpenMP runtime, which the slim Debian base lacks.
 RUN apt-get update \

@@ -53,8 +53,11 @@ serve:  ## FastAPI service on http://127.0.0.1:8000 (registry: MLFLOW_TRACKING_U
 # ── Docker compose stack (MLflow server + API); see "Run the stack with Docker" in the README ──
 .PHONY: up down logs register-docker smoke
 
+# mlflow and api share one image tag. Build it once (via api) before starting: with `up --build`
+# both services build and race to export the same tag, and a fresh machine fails with "already exists".
 up:  ## Build and start MLflow (localhost:5001) + API (localhost:8000) in Docker
-	$(COMPOSE) up -d --build --wait mlflow api
+	$(COMPOSE) build api
+	$(COMPOSE) up -d --wait mlflow api
 
 down:  ## Stop the stack (keeps the registry volume; add -v by hand to wipe it)
 	$(COMPOSE) down
