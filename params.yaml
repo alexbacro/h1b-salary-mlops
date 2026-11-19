@@ -27,3 +27,10 @@ serving:
   model_alias: champion          # the API serves whichever version holds this alias
 
 seed: 42
+
+monitoring:
+  top_n: 50                # high-cardinality columns: keep the top N train values, rest -> "other"
+  unseen_share_max:        # alert if the share of rows with a value never seen in train exceeds this
+    soc_code: 0.02         # clean val: 0.000
+    job_title: 0.22        # clean val: 0.156
+    employer_name: 0.15    # clean val: 0.081
