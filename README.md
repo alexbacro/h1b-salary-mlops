@@ -37,7 +37,7 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 | Stage | Tooling | Status |
 |---|---|---|
 | Data ingestion, validation, baselines | pandas, Parquet | ✅ `src/h1b/` |
-| Orchestration | Airflow DAG (Docker) | ✅ `dags/h1b_pipeline.py`; register/train tasks need the MLflow server and FLAML training |
+| Orchestration | Airflow DAG (Docker) | ✅ `dags/h1b_pipeline.py` |
 | Experiment tracking & registry | MLflow + FLAML AutoML | ⏳ planned |
 | Serving | FastAPI + Docker Compose | ✅ FastAPI skeleton in `src/h1b/serve.py`; Docker planned |
 | Monitoring & drift simulation | Evidently | ✅ `make drift` and `make drift-sim` (API-level check planned) |
@@ -126,16 +126,15 @@ Airflow runs in Docker (`docker-compose.airflow.yml`) and reads and writes the s
 folders as `make data`. Requires Docker with Compose v2 and the DOL files in `data/raw/`.
 
 ```bash
-make up                # MLflow server + API (docker-compose.yml, #10); needed by the register and train tasks
+make up                # MLflow server + API (docker-compose.yml); needed by the register and train tasks
 make airflow-up        # build and start Airflow on http://localhost:8080
 make airflow-trigger   # start one run; follow it in the UI (h1b_pipeline ▸ Grid)
 make airflow-down      # stop Airflow
 ```
 
 - `register_baseline` only runs when no model holds `@champion` yet, and is skipped otherwise.
-- `train` (FLAML training, #13) promotes its model to `@champion` only if it beats the current champion's
-  validation log-RMSE.
-  Restart the API afterwards (`docker compose restart api`) so it serves the new version.
+- `train` promotes its FLAML model to `@champion` only if it beats the current champion's validation
+  log-RMSE. Restart the API afterwards (`docker compose restart api`) so it serves the new version.
 - Task details, testing and troubleshooting: [`dags/README.md`](dags/README.md).
 
 ## Repository layout

@@ -49,9 +49,7 @@ project name as `docker-compose.yml`, so both stacks share one network.
 
 ## Run it
 
-Requires Docker with Compose v2, and the DOL files in `data/raw/` (see `data/README.md`). The register and
-train tasks also need the MLflow stack from `docker-compose.yml` (#10) and `h1b.train` (#13); without them,
-the four data tasks still run.
+Requires Docker with Compose v2, and the DOL files in `data/raw/` (see `data/README.md`).
 
 ```bash
 make up                # MLflow server + API (docker-compose.yml); needed by register_baseline and train
@@ -81,8 +79,7 @@ champion at startup and keeps serving the previous version until it restarts.
 | Symptom | Likely cause |
 |---|---|
 | `register_baseline` fails with a connection error (within about a minute) | The MLflow stack isn't running: `make up` first |
-| `train` fails with `No module named h1b.train` | Training (#13) isn't in this branch yet |
-| `train` is killed with exit code 137 | Docker ran out of memory: raise it in Docker Desktop ▸ Settings ▸ Resources, or set `training.max_train_rows` in `params.yaml` (added by #13; applies on the next run, no rebuild) |
+| `train` is killed with exit code 137 | Docker ran out of memory: raise it in Docker Desktop ▸ Settings ▸ Resources, or set `training.max_train_rows` in `params.yaml` (applies on the next run, no rebuild) |
 | The API still serves the old version | Restart it after promotion: `docker compose restart api` |
 | A DAG edit doesn't show in the UI | Airflow re-parses `dags/` periodically; wait about a minute or run `make airflow-check` |
 
@@ -97,6 +94,6 @@ champion at startup and keeps serving the previous version until it restarts.
 
 ## Follow-ups
 
-- Move the `airflow` service into `docker-compose.yml` once #10 is in `main`, so one `make up` starts the
-  whole stack.
+- Move the `airflow` service into `docker-compose.yml` behind `profiles: ["airflow"]`, so the whole stack
+  lives in one file and `make up` stays light.
 - Reload the API automatically after `train` promotes a new champion.

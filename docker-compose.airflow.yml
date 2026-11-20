@@ -1,5 +1,5 @@
-# Airflow for the h1b pipeline DAG (dags/). Kept in its own file so it can be developed alongside
-# docker-compose.yml (MLflow server + API, PR #10) without editing it:
+# Airflow for the h1b pipeline DAG (dags/). Kept in its own file, alongside docker-compose.yml
+# (MLflow server + API), for now:
 #
 #   make airflow-up          # build and start Airflow on http://localhost:8080
 #   make airflow-down        # stop it (run history is kept in the airflow-home volume)
@@ -8,9 +8,9 @@
 # register/train tasks reach the tracking server as http://mlflow:5000. Start the MLflow stack
 # first (`make up`); the data tasks (ingest -> baseline) don't need it.
 #
-# TODO: once docker-compose.yml (PR #10) is in main, move the `airflow` service and the
-# `airflow-home` volume into it and delete this file, so one `make up` starts the whole stack.
-# Kept separate for now so this PR doesn't depend on or conflict with #10.
+# TODO (follow-up PR): move the `airflow` service and the `airflow-home` volume into
+# docker-compose.yml behind `profiles: ["airflow"]` and delete this file, so the whole stack lives
+# in one file. It was kept separate so the DAG PR didn't depend on or conflict with #10.
 name: h1b-salary
 
 services:
