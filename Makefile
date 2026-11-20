@@ -1,10 +1,12 @@
 # Convenience targets. Run `make help` to list them.
 PYTHON ?= python
+ARGS ?=
+
 COMPOSE ?= docker compose
 -include .env   # optional overrides shared with docker compose (see .env.example)
 API_PORT ?= 8000
 
-.PHONY: help setup lint format test ingest clean-data split baseline register-baseline data drift drift-sim serve
+.PHONY: help setup lint format test ingest clean-data split baseline register-baseline train data drift drift-sim serve
 
 help:  ## Show this help
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -43,6 +45,8 @@ drift:  ## Evidently drift reports: train vs val (features and target) -> report
 register-baseline:  ## Register the median baseline in MLflow as h1b-salary-model@champion
 	$(PYTHON) -m h1b.register_baseline
 
+train:  ## FLAML AutoML on log_wage -> MLflow; promotes @champion only if it wins (e.g. ARGS="--time-budget 120")
+	$(PYTHON) -m h1b.train $(ARGS)
 drift-sim:  ## Corrupt val in several ways and check Evidently flags it -> reports/drift_sim_*.html
 	$(PYTHON) -m h1b.drift_simulation
 

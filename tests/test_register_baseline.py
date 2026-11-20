@@ -18,9 +18,10 @@ ALIAS = PARAMS["serving"]["model_alias"]
 
 
 @pytest.fixture(autouse=True)
-def _isolate_mlflow_state(monkeypatch):
+def _isolate_mlflow_state(monkeypatch, tmp_path):
     """register() sets the global tracking URI; reset it so it cannot leak into other tests."""
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.chdir(tmp_path)
     yield
     mlflow.set_tracking_uri(None)
 

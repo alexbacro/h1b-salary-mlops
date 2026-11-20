@@ -51,6 +51,7 @@ Requires Python 3.11+.
 git clone git@github.com:alexbacro/h1b-salary-mlops.git
 cd h1b-salary-mlops
 python3.11 -m venv .venv && source .venv/bin/activate
+brew install libomp   # macOS only: xgboost/lightgbm need it (without it make test fails at collection)
 make setup        # pip install -r requirements-dev.txt -e .
 make test         # unit tests, no data needed
 ```
