@@ -10,7 +10,8 @@ from mlflow.exceptions import MlflowException
 from h1b.config import load_params
 from h1b.encoding import FeatureEncoder
 from h1b.features import BOOLEAN_FEATURES, CATEGORICAL_FEATURES, DTYPES, to_model_input
-from h1b.train import train
+from h1b.register_baseline import register
+from h1b.train import champion_log_rmse, train
 
 PARAMS = load_params()
 MODEL_NAME = PARAMS["serving"]["model_name"]
@@ -19,9 +20,10 @@ FAST = {**PARAMS, "training": {"time_budget_s": 5, "estimator_list": ["lgbm"], "
 
 
 @pytest.fixture(autouse=True)
-def _isolate_mlflow_state(monkeypatch):
+def _isolate_mlflow_state(monkeypatch, tmp_path):
     """train() sets the global tracking URI; reset it so it cannot leak into other tests."""
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.chdir(tmp_path)
     yield
     mlflow.set_tracking_uri(None)
 
@@ -67,6 +69,23 @@ def test_promote_never_registers_without_moving_the_alias(tmp_path):
     assert client.get_model_version(MODEL_NAME, result["version"]).tags["semver"]
     with pytest.raises(MlflowException):
         client.get_model_version_by_alias(MODEL_NAME, ALIAS)
+
+
+def test_if_better_compares_against_the_registered_baseline(tmp_path):
+    """The Airflow path: baseline is @champion (no tag, metric only on its run); train() must compare to it."""
+    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    frame = _frame()
+    register(frame, frame, tracking_uri=uri, artifact_root=tmp_path / "artifacts")
+
+    client = MlflowClient(tracking_uri=uri)
+    has_champion, baseline = champion_log_rmse(client, MODEL_NAME, ALIAS)
+    assert has_champion and baseline is not None  # the baseline's metric is found via its run
+
+    result = train(frame, frame, FAST, tracking_uri=uri, promote="if-better")
+    assert result["champion_log_rmse"] == pytest.approx(baseline)
+    assert result["promoted"] == (result["metrics"]["log_rmse"] < baseline)
+    version = client.get_model_version_by_alias(MODEL_NAME, ALIAS).version
+    assert (str(version) == result["version"]) == result["promoted"]
 
 
 def test_encoder_handles_values_unseen_in_train():
