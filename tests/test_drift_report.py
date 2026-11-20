@@ -5,6 +5,7 @@ import pytest
 from h1b.drift_report import (
     CAT,
     COLS,
+    alert_reasons,
     bucket,
     drift_scores,
     load,
@@ -72,3 +73,16 @@ def test_unseen_alerts_lists_columns_over_their_limit():
     unseen = {"soc_code": 0.0, "job_title": 0.24, "employer_name": 0.1}
     limits = {"soc_code": 0.02, "job_title": 0.22, "employer_name": 0.15, "worksite_city": 0.5}
     assert unseen_alerts(unseen, limits) == ["job_title"]
+
+
+def test_bucket_keeps_the_missing_label():
+    keep = {"employer_name": {"A"}}
+    out = bucket(pd.DataFrame({"employer_name": ["A", "missing", "Z"]}), keep)
+    assert out["employer_name"].tolist() == ["A", "missing", "other"]
+
+
+def test_alert_reasons_lists_unseen_and_drift():
+    summary = {"features": {"flagged": ["soc_code"]}, "target": {"flagged": []}}
+    assert alert_reasons(["job_title"], summary) == ["unseen_share:job_title", "drift:features:soc_code"]
+    quiet = {"features": {"flagged": []}, "target": {"flagged": []}}
+    assert alert_reasons([], quiet) == []
