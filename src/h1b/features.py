@@ -34,6 +34,12 @@ NUMERIC_FEATURES: list[str] = []  # none yet; add engineered features here
 
 FEATURES: list[str] = CATEGORICAL_FEATURES + NUMERIC_FEATURES + BOOLEAN_FEATURES
 
+# Computed from other columns (see add_derived_features), so API callers never send them.
+# Accepting them would let a caller send inconsistent pairs, e.g. soc_major="99" with soc_code="15-1252".
+DERIVED_FEATURES: list[str] = ["soc_major"]
+# What an API caller sends: every feature except the derived ones.
+REQUEST_FEATURES: list[str] = [c for c in FEATURES if c not in DERIVED_FEATURES]
+
 # Kept for splitting/bookkeeping; never fed to the model.
 NON_FEATURE_COLUMNS: list[str] = [
     "case_number",
@@ -69,3 +75,30 @@ def to_model_input(df: pd.DataFrame) -> pd.DataFrame:
     out = validate_features(df)
     out[BOOLEAN_FEATURES] = out[BOOLEAN_FEATURES].astype("float64")
     return out
+
+
+def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add DERIVED_FEATURES from already-normalized columns (same rule as clean.py: SOC major group)."""
+    out = df.copy()
+    out["soc_major"] = out["soc_code"].str[:2]
+    return out
+
+
+def prepare_request(df: pd.DataFrame) -> pd.DataFrame:
+    """Turn raw API records (REQUEST_FEATURES) into model input, normalized exactly as clean.py does.
+
+    Without this, '15-1252.00', 'ca' or 'Data Scientist' would not match the training keys and
+    would silently fall back to the global median (#8, item 4).
+    """
+    # Imported here, not at the top: clean.py can then import add_derived_features from this
+    # module later without creating a circular import.
+    from h1b.clean import normalize_text, to_soc_2018
+
+    out = df.copy()
+    out["soc_code"] = to_soc_2018(out["soc_code"])
+    out["worksite_state"] = out["worksite_state"].astype("string").str.upper().str.strip()
+    for col in ["job_title", "employer_name", "worksite_city"]:
+        out[col] = normalize_text(out[col])
+    # Same rule as clean.py: keep the 2-digit NAICS sector, so '541511' and '54' both give '54'.
+    out["naics_2"] = out["naics_2"].astype("string").str.extract(r"^(\d{2})")[0]
+    return to_model_input(add_derived_features(out))

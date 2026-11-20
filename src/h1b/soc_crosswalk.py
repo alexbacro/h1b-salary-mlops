@@ -35,7 +35,7 @@ SOC_2010_TO_2018: dict[str, str] = {
     "25-2054": "25-2058",  # Special Education Teachers, Secondary School -> Special Education Teachers, Secondary School
     "25-4021": "25-4022",  # Librarians -> Librarians and Media Collections Specialists
     "25-9011": "25-4022",  # Audio-Visual and Multimedia Collections Specialists -> Librarians and Media Collections Specialists
-    "25-9041": "25-9042",  # Teacher Assistants -> Teaching Assistants, Preschool, Elementary, Middle, and Secondary School, Except Special Education (1 of 3)
+    "25-9041": "25-9043",  # Teacher Assistants -> Teaching Assistants, Special Education (1 of 3)
     "27-3012": "27-3099",  # Public Address System and Other Announcers -> Media and Communication Workers, All Other
     "27-3021": "27-3023",  # Broadcast News Analysts -> News Analysts, Reporters, and Journalists
     "27-3022": "27-3023",  # Reporters and Correspondents -> News Analysts, Reporters, and Journalists
@@ -50,7 +50,7 @@ SOC_2010_TO_2018: dict[str, str] = {
     "29-1069": "29-1229",  # Physicians and Surgeons, All Other -> Physicians, All Other (1 of 8)
     "29-1199": "29-1299",  # Health Diagnosing and Treating Practitioners, All Other -> Healthcare Diagnosing or Treating Practitioners, All Other (1 of 2)
     "29-2021": "29-1292",  # Dental Hygienists -> Dental Hygienists
-    "29-2041": "29-2042",  # Emergency Medical Technicians and Paramedics -> Emergency Medical Technicians (1 of 2)
+    "29-2041": "29-2043",  # Emergency Medical Technicians and Paramedics -> Paramedics (1 of 2)
     "29-2054": "29-2099",  # Respiratory Therapy Technicians -> Health Technologists and Technicians, All Other
     "29-2071": "29-2072",  # Medical Records and Health Information Technicians -> Medical Records Specialists (1 of 2)
     "29-9011": "19-5011",  # Occupational Health and Safety Specialists -> Occupational Health and Safety Specialists
@@ -95,13 +95,62 @@ SOC_2010_TO_2018: dict[str, str] = {
     "55-3017": "17-3029",  # Radar and Sonar Technicians -> Engineering Technologists and Technicians, Except Drafters, All Other
 }
 
-# O*NET 2010 detail code -> 2018 code, applied before SOC_2010_TO_2018.
+# O*NET-SOC 2010 detail code -> 2018 code where the O*NET 2019 crosswalk disagrees with the
+# 6-digit lookup. Applied before SOC_2010_TO_2018.
 ONET_OVERRIDES: dict[str, str] = {
-    "15-1199.01": "15-1253",
-    "15-1199.06": "15-1243",
-    "29-1069.02": "29-1213",
-    "29-1069.04": "29-1217",
-    "29-1069.06": "29-1241",
-    "29-1069.07": "29-1222",
-    "29-1069.10": "29-1224",
+    "11-9039.02": "11-9179",  # Fitness and Wellness Coordinators -> Fitness and Wellness Coordinators
+    "11-9199.03": "11-3031",  # Investment Fund Managers -> Investment Fund Managers
+    "11-9199.04": "11-3071",  # Supply Chain Managers -> Supply Chain Managers
+    "13-1199.01": "47-4011",  # Energy Auditors -> Energy Auditors
+    "13-1199.03": "13-1041",  # Customs Brokers -> Customs Brokers
+    "13-2071.01": "13-2072",  # Loan Counselors -> Loan Officers
+    "13-2099.02": "13-2054",  # Risk Management Specialists -> Financial Risk Specialists
+    "13-2099.03": "13-2051",  # Investment Underwriters -> Financial and Investment Analysts
+    "15-1199.01": "15-1253",  # Software Quality Assurance Engineers and Testers -> Software Quality Assurance Analysts and Testers
+    "15-1199.06": "15-1243",  # Database Architects -> Database Architects
+    "15-1199.07": "15-1243",  # Data Warehousing Specialists -> Data Warehousing Specialists
+    "15-1199.08": "15-2051",  # Business Intelligence Analysts -> Business Intelligence Analysts
+    "15-1199.10": "13-1161",  # Search Marketing Strategists -> Search Marketing Strategists
+    "15-1199.11": "15-1255",  # Video Game Designers -> Video Game Designers
+    "15-2041.02": "15-2051",  # Clinical Data Managers -> Clinical Data Managers
+    "17-2081.01": "17-2051",  # Water/Wastewater Engineers -> Water/Wastewater Engineers
+    "17-2199.01": "17-2031",  # Biochemical Engineers -> Bioengineers and Biomedical Engineers
+    "17-2199.02": "17-2112",  # Validation Engineers -> Validation Engineers
+    "17-2199.04": "17-2112",  # Manufacturing Engineers -> Manufacturing Engineers
+    "17-3029.02": "17-3023",  # Electrical Engineering Technologists -> Electrical and Electronic Engineering Technologists and Technicians
+    "17-3029.03": "17-3024",  # Electromechanical Engineering Technologists -> Electro-Mechanical and Mechatronics Technologists and Technicians
+    "17-3029.04": "17-3023",  # Electronics Engineering Technologists -> Electrical and Electronic Engineering Technologists and Technicians
+    "17-3029.05": "17-3026",  # Industrial Engineering Technologists -> Industrial Engineering Technologists and Technicians
+    "17-3029.06": "17-3026",  # Manufacturing Engineering Technologists -> Industrial Engineering Technologists and Technicians
+    "17-3029.07": "17-3027",  # Mechanical Engineering Technologists -> Mechanical Engineering Technologists and Technicians
+    "17-3029.09": "17-3026",  # Manufacturing Production Technicians -> Industrial Engineering Technologists and Technicians
+    "17-3029.11": "17-3026",  # Nanotechnology Engineering Technologists -> Nanotechnology Engineering Technologists and Technicians
+    "17-3029.12": "17-3026",  # Nanotechnology Engineering Technicians -> Nanotechnology Engineering Technologists and Technicians
+    "19-1020.01": "19-1029",  # Biologists -> Biologists
+    "19-3031.01": "19-3034",  # School Psychologists -> School Psychologists
+    "19-4011.02": "19-4013",  # Food Science Technicians -> Food Science Technicians
+    "19-4061.01": "19-3051",  # City and Regional Planning Aides -> Urban and Regional Planners
+    "19-4099.02": "19-4012",  # Precision Agriculture Technicians -> Precision Agriculture Technicians
+    "25-3099.02": "25-3041",  # Tutors -> Tutors
+    "29-1069.02": "29-1213",  # Dermatologists -> Dermatologists
+    "29-1069.04": "29-1217",  # Neurologists -> Neurologists
+    "29-1069.05": "29-1224",  # Nuclear Medicine Physicians -> Radiologists
+    "29-1069.06": "29-1241",  # Ophthalmologists -> Ophthalmologists, Except Pediatric
+    "29-1069.07": "29-1222",  # Pathologists -> Physicians, Pathologists
+    "29-1069.10": "29-1224",  # Radiologists -> Radiologists
+    "29-1125.01": "29-1129",  # Art Therapists -> Art Therapists
+    "29-1125.02": "29-1129",  # Music Therapists -> Music Therapists
+    "29-1199.01": "29-1291",  # Acupuncturists -> Acupuncturists
+    "29-2099.06": "29-2034",  # Radiologic Technicians -> Radiologic Technologists and Technicians
+    "29-2099.07": "29-9093",  # Surgical Assistants -> Surgical Assistants
+    "33-3021.05": "33-3051",  # Immigration and Customs Inspectors -> Customs and Border Protection Officers
+    "39-1021.01": "11-9179",  # Spa Managers -> Spa Managers
+    "41-3099.01": "41-3031",  # Energy Brokers -> Securities, Commodities, and Financial Services Sales Agents
+    "43-4051.03": "29-2099",  # Patient Representatives -> Patient Representatives
+    "43-9111.01": "15-2099",  # Bioinformatics Technicians -> Bioinformatics Technicians
+    "47-4099.02": "47-2152",  # Solar Thermal Installers and Technicians -> Solar Thermal Installers and Technicians
+    "51-8099.02": "51-8013",  # Methane/Landfill Gas Generation System Technicians -> Power Plant Operators
+    "51-8099.03": "51-8013",  # Biomass Plant Technicians -> Biomass Plant Technicians
+    "51-8099.04": "51-8013",  # Hydroelectric Plant Technicians -> Hydroelectric Plant Technicians
+    "51-9199.01": "53-7062",  # Recycling and Reclamation Workers -> Recycling and Reclamation Workers
 }

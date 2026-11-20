@@ -1,7 +1,12 @@
 # Convenience targets. Run `make help` to list them.
 PYTHON ?= python
+ARGS ?=
 
-.PHONY: help setup lint format test ingest clean-data split baseline register-baseline data drift
+COMPOSE ?= docker compose
+-include .env   # optional overrides shared with docker compose (see .env.example)
+API_PORT ?= 8000
+
+.PHONY: help setup lint format test ingest clean-data split baseline register-baseline train data drift drift-sim serve
 
 help:  ## Show this help
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -39,6 +44,40 @@ drift:  ## Evidently drift reports: train vs val (features and target) -> report
 
 register-baseline:  ## Register the median baseline in MLflow as h1b-salary-model@champion
 	$(PYTHON) -m h1b.register_baseline
+
+train:  ## FLAML AutoML on log_wage -> MLflow; promotes @champion only if it wins (e.g. ARGS="--time-budget 120")
+	$(PYTHON) -m h1b.train $(ARGS)
+drift-sim:  ## Corrupt val in several ways and check Evidently flags it -> reports/drift_sim_*.html
+	$(PYTHON) -m h1b.drift_simulation
+
+# Bound to 127.0.0.1 so the dev server is not exposed on the network; Docker sets its own host.
+serve:  ## FastAPI service on http://127.0.0.1:8000 (registry: MLFLOW_TRACKING_URI, else ./mlflow.db)
+	$(PYTHON) -m uvicorn h1b.serve:app --host 127.0.0.1 --port 8000
+
+# ── Docker compose stack (MLflow server + API); see "Run the stack with Docker" in the README ──
+.PHONY: up down logs register-docker smoke
+
+# mlflow and api share one image tag. Build it once (via api) before starting: with `up --build`
+# both services build and race to export the same tag, and a fresh machine fails with "already exists".
+up:  ## Build and start MLflow (localhost:5001) + API (localhost:8000) in Docker
+	$(COMPOSE) build api
+	$(COMPOSE) up -d --wait mlflow api
+
+down:  ## Stop the stack (keeps the registry volume; add -v by hand to wipe it)
+	$(COMPOSE) down
+
+logs:  ## Follow the stack's logs
+	$(COMPOSE) logs -f --tail=100
+
+register-docker:  ## Register the baseline in the stack's MLflow (needs make data), then reload the API
+	$(COMPOSE) run --rm register
+	$(COMPOSE) restart api
+	$(COMPOSE) up -d --wait api
+
+smoke:  ## GET /health and POST /predict against the running API
+	curl -fsS http://localhost:$(API_PORT)/health; echo
+	curl -fsS -X POST http://localhost:$(API_PORT)/predict -H 'Content-Type: application/json' \
+	  -d '{"records": [{"soc_code": "15-1252", "worksite_state": "CA", "worksite_city": "San Jose", "job_title": "Software Engineer", "employer_name": "Acme Corp", "naics_2": "54", "full_time": null}]}'; echo
 
 # ── Airflow (docker-compose.airflow.yml); start the MLflow stack first for the register/train tasks ──
 AIRFLOW_COMPOSE ?= docker compose -f docker-compose.airflow.yml
