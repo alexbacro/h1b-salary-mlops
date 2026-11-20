@@ -79,7 +79,12 @@ def register(
     client = MlflowClient(tracking_uri=tracking_uri)
     exp = client.get_experiment_by_name(EXPERIMENT_NAME)
     if exp is None:
-        location = (Path(artifact_root) / EXPERIMENT_NAME).resolve().as_uri()
+        # With a local store, keep artifacts next to it. With a tracking server (Docker), let the
+        # server choose (mlflow-artifacts:/): a file:// path on this machine would not exist inside
+        # the API container, so the model could be registered but never loaded.
+        location = None
+        if not tracking_uri.startswith(("http://", "https://")):
+            location = (Path(artifact_root) / EXPERIMENT_NAME).resolve().as_uri()
         exp_id = client.create_experiment(EXPERIMENT_NAME, artifact_location=location)
     else:
         exp_id = exp.experiment_id

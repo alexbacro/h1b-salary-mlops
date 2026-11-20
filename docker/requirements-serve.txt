@@ -1,0 +1,14 @@
+# What the Docker image installs: the serving/registry subset of requirements.txt.
+# Versions come from requirements.txt (passed with -c), so pins live in one place.
+numpy
+pandas
+pyarrow
+pyyaml
+mlflow
+fastapi
+uvicorn
+# FLAML champions (#13) are pickled AutoML objects: the image that loads them needs the same
+# flaml/lightgbm the model was trained with, so these are pinned here exactly (not via -c).
+# flaml[automl] also pulls xgboost; on linux/amd64 that brings nvidia-nccl-cu12 (~200 MB).
+flaml[automl]==2.8.0
+lightgbm==4.7.0

@@ -28,8 +28,10 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
                                                     └─► features ─► FLAML AutoML ─► MLflow tracking
                                                                                     + Model Registry
                                                                                         │
-                    Evidently dashboard ◄── prediction logs ◄── FastAPI /predict (Docker)
-                    (clean vs. drifted test data)
+    FY25 test data (clean + corrupted) ──► monitoring script ──► FastAPI /predict (Docker)
+                                                   │                      │
+                                                   └─► Evidently ◄── predictions
+    (clean vs. corrupted FY25 batches; features rebuilt locally with prepare_request)
 ```
 
 | Stage | Tooling | Status |
@@ -37,8 +39,8 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 | Data ingestion, validation, baselines | pandas, Parquet | ✅ `src/h1b/` |
 | Orchestration | Airflow DAG | ⏳ planned |
 | Experiment tracking & registry | MLflow + FLAML AutoML | ⏳ planned |
-| Serving | FastAPI + Docker Compose | ⏳ planned |
-| Monitoring & drift simulation | Evidently | ⏳ planned |
+| Serving | FastAPI + Docker Compose | ✅ FastAPI skeleton in `src/h1b/serve.py`; Docker planned |
+| Monitoring & drift simulation | Evidently | ✅ `make drift` and `make drift-sim` (API-level check planned) |
 | CI | GitHub Actions (ruff + pytest) | ✅ `.github/workflows/ci.yml` |
 
 ## Quickstart
@@ -70,10 +72,52 @@ This writes:
 
 Fiscal years, filters and wage bounds are all set in [`params.yaml`](params.yaml).
 
+### Run the API
+
+The service loads whichever model version holds `h1b-salary-model@champion` in the MLflow registry
+(name and alias under `serving:` in `params.yaml`), so register a model first:
+
+```bash
+make register-baseline   # registers the median baseline and sets @champion (needs `make data`)
+make serve               # http://127.0.0.1:8000; interactive docs at /docs
+```
+
+- `GET /health` reports whether a model is loaded and which version is served.
+- `POST /predict` takes `{"records": [...]}` (1 to 10,000 records with the columns in
+  `REQUEST_FEATURES`, `src/h1b/features.py`) and returns one predicted annual wage in USD per record.
+  Raw values such as `15-1252.00` or `ca` are normalized the same way as the training data, and
+  `soc_major` is derived from `soc_code` (sending it is rejected).
+- With no champion registered the service still starts, and `/predict` returns 503.
+- The registry defaults to `mlflow.db` in the repo root; set `MLFLOW_TRACKING_URI` to use an MLflow server.
+
+### Run the stack with Docker
+
+`docker-compose.yml` runs the MLflow tracking server (registry + artifact store) and the API that
+serves `models:/h1b-salary-model@champion` from it. Requires Docker with Compose v2, and `make data`
+for the registration step.
+
+```bash
+cp .env.example .env     # optional: change host ports (MLflow defaults to 5001, because macOS uses 5000)
+make up                  # build the image, start mlflow + api, wait until both are healthy
+make register-docker     # register the baseline in the stack's MLflow as @champion, then reload the api
+make smoke               # GET /health and POST /predict
+make logs                # follow the logs; `make down` stops the stack
+```
+
+- MLflow UI: http://localhost:5001. API docs: http://localhost:8000/docs.
+- Both services use one image (`docker/Dockerfile`, the serving subset of `requirements.txt`).
+- The registry (SQLite backend store and artifacts) lives in the `mlflow-data` volume, so it survives
+  `make down`. `docker compose down -v` wipes it.
+- The API loads the champion at startup. Until one is registered, `/health` shows `model_loaded: false`
+  and `/predict` returns 503. After moving `@champion`, restart the API (`docker compose restart api`).
+- The registration job mounts only `data/processed` (read-only). The holdout split is never mounted.
+
 ## Repository layout
 
 ```
 ├── params.yaml              # single source of pipeline configuration
+├── docker-compose.yml       # MLflow server + API (see "Run the stack with Docker")
+├── docker/                  # Dockerfile and the image's requirements
 ├── src/h1b/
 │   ├── config.py            # loads params.yaml, resolves paths
 │   ├── schema.py            # canonical columns + mapping of year-to-year header variants
@@ -96,6 +140,43 @@ Fiscal years, filters and wage bounds are all set in [`params.yaml`](params.yaml
 - Branch from `main` (`feature/<short-name>`), open a PR, and let CI pass before merging.
 - Run `make lint test` before pushing. `make format` auto-fixes most lint issues.
 - Never commit data files, `mlruns/`, or credentials (`.gitignore` covers the usual ones).
+
+## Monitoring
+
+Both commands read `data/processed` (train = reference, val = current) and never touch the holdout.
+
+- `make drift`: Evidently drift reports for the input features and, separately, the target (`log_wage`).
+  Writes `reports/drift_features_train_vs_val.html`, `reports/drift_target_train_vs_val.html` and
+  `reports/drift_train_vs_val.json`.
+- `make drift-sim`: corrupts a copy of val five ways (values that would pass input validation) and
+  runs the same report on each. Writes `reports/drift_sim_<scenario>.html`,
+  `reports/drift_simulation_summary.csv` and `reports/drift_simulation_summary.json`. It exits with
+  code 1 if a scenario does not flag exactly the columns it is expected to.
+
+**Decision rule.** A column is flagged when its drift score is at or above its Evidently threshold
+(0.1 for Jensen-Shannon distance and normed Wasserstein distance). That is stricter than Evidently's
+dataset-level `drift_share=0.5`. Medium- and high-cardinality columns are bucketed (top
+`monitoring.top_n` train values, the rest as `other`), and the share of rows whose value never
+appeared in train is checked against `monitoring.unseen_share_max` in [`params.yaml`](params.yaml).
+The drift score alone misses moderate corruption: 10% new names flags neither name column, while the
+unseen share of `job_title` goes from 0.156 (clean) to about 0.24. The limits are a first guess from
+one validation year and should be revisited after the FY25 check.
+
+**Results** (train FY22-23 vs val FY24, current `main`, before the O*NET follow-up; numbers may shift slightly).
+Clean val flags nothing (largest score 0.092, `job_title`). Each corruption flags exactly the columns it
+corrupted:
+
+| Scenario | Corruption | Flagged | Max score | Unseen-share alert |
+|---|---|---|---|---|
+| `clean` | none | - | 0.092 | - |
+| `unseen_soc_30pct` | 30% of rows get SOC code `99-9999` | `soc_code`, `soc_major` | 0.343 | `soc_code` |
+| `unseen_names_40pct` | 40% of rows get new employer and title | `employer_name`, `job_title` | 0.136 | `employer_name`, `job_title` |
+| `full_time_shift_60pct` | 60% of rows set to part time | `full_time` | 0.497 | - |
+| `swap_title_employer` | `job_title` and `employer_name` swapped | `employer_name`, `job_title` | 0.340 | `employer_name`, `job_title` |
+| `wage_shift_plus_0.3` | `log_wage` + 0.3 (about 35% higher) | `log_wage` | 0.897 | - |
+
+The drift report also found a real problem: before the SOC 2010 to 2018 crosswalk, `soc_code` scored 0.32
+(flagged) between train and val; after it, 0.082.
 
 ## Contributions
 
