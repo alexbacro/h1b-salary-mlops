@@ -16,7 +16,16 @@ from h1b.train import champion_log_rmse, train
 PARAMS = load_params()
 MODEL_NAME = PARAMS["serving"]["model_name"]
 ALIAS = PARAMS["serving"]["model_alias"]
-FAST = {**PARAMS, "training": {"time_budget_s": 5, "estimator_list": ["lgbm"], "metric": "mse", "max_train_rows": None}}
+FAST = {
+    **PARAMS,
+    "training": {
+        "time_budget_s": 5,
+        "estimator_list": ["lgbm"],
+        "metric": "mse",
+        "max_train_rows": None,
+        "mlflow_logging": False,  # FLAML's per-trial logging raced on the flaml.best_run tag in CI
+    },
+}
 
 
 @pytest.fixture(autouse=True)

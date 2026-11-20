@@ -99,7 +99,7 @@ def train(
             time_budget=cfg["time_budget_s"],
             eval_method="holdout",
             seed=seed,
-            mlflow_logging=True,
+            mlflow_logging=cfg.get("mlflow_logging", True),
         )
         metrics = regression_report(val_df["annual_wage"], np.exp(automl.predict(x_val)))
         mlflow.log_metrics({f"val_{k}": v for k, v in metrics.items()})
