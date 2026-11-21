@@ -11,7 +11,7 @@ from h1b.config import load_params
 from h1b.encoding import FeatureEncoder
 from h1b.features import BOOLEAN_FEATURES, CATEGORICAL_FEATURES, DTYPES, to_model_input
 from h1b.register_baseline import register
-from h1b.train import champion_log_rmse, train
+from h1b.train import _year_adjusted_target, champion_log_rmse, train
 
 PARAMS = load_params()
 MODEL_NAME = PARAMS["serving"]["model_name"]
@@ -86,6 +86,26 @@ def test_if_better_compares_against_the_registered_baseline(tmp_path):
     assert result["promoted"] == (result["metrics"]["log_rmse"] < baseline)
     version = client.get_model_version_by_alias(MODEL_NAME, ALIAS).version
     assert (str(version) == result["version"]) == result["promoted"]
+
+
+def test_year_adjusted_target_lifts_old_years_and_returns_growth():
+    df = pd.DataFrame({"fiscal_year": [2022, 2022, 2023, 2023], "log_wage": [11.0, 11.2, 11.1, 11.3]})
+    adjusted, growth = _year_adjusted_target(df)
+    assert growth == pytest.approx(0.1)
+    assert adjusted.tolist() == pytest.approx([11.1, 11.3, 11.1, 11.3])
+
+
+def test_train_with_wage_growth_adjustment_registers_a_usd_model(tmp_path):
+    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    frame = _frame()
+    frame["fiscal_year"] = [2022, 2023] * (len(frame) // 2)
+    frame["log_wage"] = frame["log_wage"] + 0.05 * (frame["fiscal_year"] == 2023)
+    params = {**FAST, "training": {**FAST["training"], "wage_growth_adjust": True}}
+    result = train(frame, frame, params, tracking_uri=uri, promote="never")  # self-check runs inside train()
+
+    model = mlflow.pyfunc.load_model(f"models:/{MODEL_NAME}/{result['version']}")
+    preds = np.asarray(model.predict(to_model_input(frame)))
+    assert (preds > 0).all()  # USD, not log
 
 
 def test_encoder_handles_values_unseen_in_train():

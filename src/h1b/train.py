@@ -51,6 +51,20 @@ def champion_log_rmse(client: MlflowClient, model_name: str, alias: str) -> tupl
     return True, None
 
 
+def _year_adjusted_target(df: pd.DataFrame) -> tuple[pd.Series, float]:
+    """Lift every training year's log_wage to the level of the latest training year (train only).
+
+    Returns the adjusted target and `g`, the mean yearly log-wage growth over the training years.
+    The model adds `g` back at prediction time, so it predicts at the level of the year after training.
+    """
+    means = df.groupby("fiscal_year")[TARGET].mean().sort_index()
+    if len(means) < 2:
+        raise ValueError("wage_growth_adjust needs at least two fiscal years in train")
+    shift = means.iloc[-1] - means
+    growth = float(means.diff().dropna().mean())
+    return df[TARGET] + df["fiscal_year"].map(shift), growth
+
+
 def train(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -67,8 +81,12 @@ def train(
         train_df = train_df.sample(n=min(int(cfg["max_train_rows"]), len(train_df)), random_state=seed)
 
     encoder = FeatureEncoder().fit(train_df)
-    x_train, y_train = encoder.transform(train_df), train_df[TARGET]
-    x_val, y_val = encoder.transform(val_df), val_df[TARGET]
+    x_train, x_val = encoder.transform(train_df), encoder.transform(val_df)
+    y_train, y_val = train_df[TARGET], val_df[TARGET]
+    log_shift = 0.0
+    if cfg.get("wage_growth_adjust"):
+        y_train, log_shift = _year_adjusted_target(train_df)
+        y_val = y_val - log_shift  # keep FLAML's validation target on the same scale as its predictions
 
     # No local artifact_location here: against an MLflow server it would put artifacts on this laptop.
     mlflow.set_tracking_uri(tracking_uri)
@@ -85,6 +103,8 @@ def train(
                 "metric": cfg["metric"],
                 "train_rows": len(train_df),
                 "seed": seed,
+                "wage_growth_adjust": bool(cfg.get("wage_growth_adjust")),
+                "log_shift": log_shift,
             }
         )
         automl = AutoML()
@@ -101,7 +121,7 @@ def train(
             seed=seed,
             mlflow_logging=True,
         )
-        metrics = regression_report(val_df["annual_wage"], np.exp(automl.predict(x_val)))
+        metrics = regression_report(val_df["annual_wage"], np.exp(automl.predict(x_val) + log_shift))
         mlflow.log_metrics({f"val_{k}": v for k, v in metrics.items()})
         mlflow.log_param("best_estimator", automl.best_estimator)
         mlflow.log_dict(
@@ -110,7 +130,7 @@ def train(
         )
         info = mlflow.pyfunc.log_model(
             name="model",
-            python_model=FlamlPyfunc(encoder, automl),
+            python_model=FlamlPyfunc(encoder, automl, log_shift=log_shift),
             signature=SIGNATURE,
             registered_model_name=model_name,
         )

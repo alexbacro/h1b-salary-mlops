@@ -26,9 +26,12 @@ class BaselinePyfunc(mlflow.pyfunc.PythonModel):
 class FlamlPyfunc(mlflow.pyfunc.PythonModel):
     """AutoML model trained on log_wage. Returns annual wage in USD, like every registered model (#8, item 2)."""
 
-    def __init__(self, encoder, automl):
+    def __init__(self, encoder, automl, log_shift: float = 0.0):
         self.encoder = encoder
         self.automl = automl
+        self.log_shift = log_shift  # yearly wage growth added back at prediction time (0 = no adjustment)
 
     def predict(self, context, model_input: pd.DataFrame, params=None) -> np.ndarray:
-        return np.exp(self.automl.predict(self.encoder.transform(model_input)))
+        # getattr: models registered before log_shift existed (e.g. v2) have no such attribute
+        shift = getattr(self, "log_shift", 0.0)
+        return np.exp(self.automl.predict(self.encoder.transform(model_input)) + shift)

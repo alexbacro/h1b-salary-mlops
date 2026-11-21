@@ -32,6 +32,7 @@ training:
   estimator_list: ["lgbm", "xgboost", "rf", "extra_tree"]
   metric: mse                   # on log_wage; RMSE is monotone in MSE, so the same model wins. We report log-RMSE ourselves
   max_train_rows: null          # e.g. 200000 for a quick smoke run
+  wage_growth_adjust: false     # lift older train years to the latest year, add the yearly growth back in the model
 
 seed: 42
 
