@@ -2,12 +2,14 @@
 
 Columns come from h1b.features so monitoring matches training and the API.
 Low-cardinality columns are tested directly. Medium/high-cardinality columns are bucketed
-(top N train values, everything else -> "other"), and the share of values never seen in
-training is checked against the limits in params.yaml (monitoring.unseen_share_max).
+(top N train values, everything else -> "other"; "missing" stays its own category), and the
+share of values never seen in training is checked against the limits in params.yaml
+(monitoring.unseen_share_max).
 
 Decision rule (quote this in the README and slides): a column is flagged when its drift score
 is at or above its Evidently threshold (0.1 for Jensen-Shannon and normed Wasserstein). That is
-stricter than Evidently's dataset-level drift_share=0.5.
+stricter than Evidently's dataset-level drift_share=0.5. The JSON summary has one top-level
+"alert" (true if any column is flagged or any unseen-share limit is exceeded) and the reasons.
 """
 
 import json
@@ -71,9 +73,10 @@ def top_values(ref, columns, n=TOP_N):
 
 
 def bucket(df, keep):
+    """Everything outside the kept top values becomes 'other'; 'missing' stays its own category."""
     df = df.copy()
     for col, values in keep.items():
-        df[col] = df[col].where(df[col].isin(values), "other")
+        df[col] = df[col].where(df[col].isin(values) | (df[col] == "missing"), "other")
     return df
 
 
@@ -100,6 +103,14 @@ def drift_scores(metrics):
 def flagged(scores):
     """Columns whose score is at or above their threshold (the decision rule above)."""
     return sorted(c for c, (value, threshold) in scores.items() if value >= threshold)
+
+
+def alert_reasons(alerts, summary):
+    """Why the summary should alert: unseen-share limits first, then flagged drift columns."""
+    reasons = [f"unseen_share:{c}" for c in alerts]
+    for part in ("features", "target"):
+        reasons += [f"drift:{part}:{c}" for c in summary[part]["flagged"]]
+    return reasons
 
 
 def main():
@@ -144,6 +155,11 @@ def main():
         for col, (value, threshold) in scores.items():
             print(f"   {col}: {value:.3f} (threshold {threshold})")
         print("   flagged:", ", ".join(hit) or "none")
+
+    reasons = alert_reasons(alerts, summary)
+    summary["alert"] = bool(reasons)
+    summary["alert_reasons"] = reasons
+    print("alert:", summary["alert"], reasons or "")
 
     json_path = paths.reports / "drift_train_vs_val.json"
     json_path.write_text(json.dumps(summary, indent=2))

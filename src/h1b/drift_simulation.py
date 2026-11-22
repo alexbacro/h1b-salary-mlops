@@ -2,9 +2,9 @@
 
 Reference = train sample, current = val sample, as in drift_report. Each scenario corrupts the
 current data in a way that would pass input validation (well-formed values, wrong content) and
-declares the columns the drift report must flag. A scenario passes only if exactly those columns
-are flagged, so "Evidently catches it" is checked, not just read off a table.
-Seed, top-N and the unseen-share limits come from params.yaml.
+declares which columns the drift report must flag and which unseen-share alerts must fire.
+A scenario passes only if exactly those happen, so "monitoring catches it" is checked, not just
+read off a table. Seed, top-N and the unseen-share limits come from params.yaml.
 
 Outputs: reports/drift_sim_<scenario>.html, drift_simulation_summary.csv and .json.
 Exit code 1 if any scenario fails.
@@ -84,14 +84,24 @@ def wage_shift(df, rng=None, delta=0.3):
     return out
 
 
-# name -> (corruption, columns the report checks, columns it must flag)
+# name -> (corruption, columns the report checks, columns it must flag, unseen-share alerts it must raise)
 SCENARIOS = {
-    "clean": (no_corruption, FEATURES, set()),
-    "unseen_soc_30pct": (unseen_soc, FEATURES, {"soc_code", "soc_major"}),
-    "unseen_names_40pct": (unseen_names, FEATURES, {"employer_name", "job_title"}),
-    "full_time_shift_60pct": (full_time_shift, FEATURES, {"full_time"}),
-    "swap_title_employer": (swap_title_employer, FEATURES, {"employer_name", "job_title"}),
-    "wage_shift_plus_0.3": (wage_shift, NUM, {"log_wage"}),
+    "clean": (no_corruption, FEATURES, set(), set()),
+    "unseen_soc_30pct": (unseen_soc, FEATURES, {"soc_code", "soc_major"}, {"soc_code"}),
+    "unseen_names_40pct": (
+        unseen_names,
+        FEATURES,
+        {"employer_name", "job_title"},
+        {"employer_name", "job_title"},
+    ),
+    "full_time_shift_60pct": (full_time_shift, FEATURES, {"full_time"}, set()),
+    "swap_title_employer": (
+        swap_title_employer,
+        FEATURES,
+        {"employer_name", "job_title"},
+        {"employer_name", "job_title"},
+    ),
+    "wage_shift_plus_0.3": (wage_shift, NUM, {"log_wage"}, set()),
 }
 
 
@@ -108,30 +118,44 @@ def main():
     ref = bucket(ref_raw, keep)
 
     records = []
-    for name, (corrupt, columns, expected) in SCENARIOS.items():
+    for name, (corrupt, columns, expected, expected_alerts) in SCENARIOS.items():
         bad = corrupt(cur_raw, np.random.default_rng(seed))
         unseen = unseen_share(vocab, bad, BUCKETED)
         snapshot = build_report(ref, bucket(bad, keep), columns)
         snapshot.save_html(str(paths.reports / f"drift_sim_{name}.html"))
         scores = drift_scores(snapshot.dict()["metrics"])
         hit = flagged(scores)
+        alerts = unseen_alerts(unseen, limits)
+        passed = set(hit) == expected and set(alerts) == expected_alerts
         records.append(
             {
                 "scenario": name,
                 "flagged": hit,
                 "expected": sorted(expected),
-                "passed": set(hit) == expected,
+                "unseen_alerts": alerts,
+                "expected_unseen_alerts": sorted(expected_alerts),
+                "passed": passed,
                 "max_score": round(max(v for v, _ in scores.values()), 3),
                 "scores": {c: {"score": round(v, 4), "threshold": t} for c, (v, t) in scores.items()},
-                "unseen_share": {c: round(v, 3) for c, v in unseen.items()},
-                "unseen_alerts": unseen_alerts(unseen, limits),
+                "unseen_share": {c: round(v, 4) for c, v in unseen.items()},
             }
         )
-        r = records[-1]
-        status = "PASS" if r["passed"] else f"FAIL (expected {r['expected'] or 'none'})"
-        print(f"{name}: flagged {', '.join(hit) or '-'} (max score {r['max_score']}) {status}")
+        status = (
+            "PASS"
+            if passed
+            else f"FAIL (expected flags {sorted(expected) or 'none'}, "
+            f"expected unseen alerts {sorted(expected_alerts) or 'none'})"
+        )
+        print(f"{name}: flagged {', '.join(hit) or '-'} (max score {records[-1]['max_score']}) {status}")
 
-    summary = {"seed": seed, "top_n": mon["top_n"], "unseen_share_max": limits, "scenarios": records}
+    failed = [r["scenario"] for r in records if not r["passed"]]
+    summary = {
+        "seed": seed,
+        "top_n": mon["top_n"],
+        "unseen_share_max": limits,
+        "all_passed": not failed,
+        "scenarios": records,
+    }
     (paths.reports / "drift_simulation_summary.json").write_text(json.dumps(summary, indent=2))
     rows = [
         {
@@ -152,7 +176,6 @@ def main():
     print()
     print(table.to_string(index=False))
 
-    failed = [r["scenario"] for r in records if not r["passed"]]
     if failed:
         print(f"\nFAILED scenarios: {', '.join(failed)}")
         sys.exit(1)

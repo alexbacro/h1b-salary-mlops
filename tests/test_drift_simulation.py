@@ -74,7 +74,7 @@ def test_wage_shift_adds_delta_and_keeps_input():
 
 
 def test_expected_columns_are_among_the_columns_checked():
-    for name, (_, columns, expected) in SCENARIOS.items():
+    for name, (_, columns, expected, _alerts) in SCENARIOS.items():
         assert expected <= set(columns), name
 
 
@@ -87,3 +87,10 @@ def test_drift_scores_and_flagged_parse_evidently_names():
     scores = drift_scores(metrics)
     assert scores == {"a": (0.32, 0.1), "b": (0.02, 0.1)}
     assert flagged(scores) == ["a"]
+
+
+def test_expected_unseen_alerts_are_bucketed_columns():
+    from h1b.drift_report import BUCKETED
+
+    for name, (_, _, _, expected_alerts) in SCENARIOS.items():
+        assert expected_alerts <= set(BUCKETED), name
