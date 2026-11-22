@@ -40,7 +40,7 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 | Orchestration | Airflow DAG | ⏳ planned |
 | Experiment tracking & registry | MLflow + FLAML AutoML | ⏳ planned |
 | Serving | FastAPI + Docker Compose | ✅ FastAPI skeleton in `src/h1b/serve.py`; Docker planned |
-| Monitoring & drift simulation | Evidently | ✅ `make drift` and `make drift-sim` (API-level check planned) |
+| Monitoring & drift simulation | Evidently | ✅ `make drift`, `make drift-sim`, `make api-check` |
 | CI | GitHub Actions (ruff + pytest) | ✅ `.github/workflows/ci.yml` |
 
 ## Quickstart
@@ -144,15 +144,26 @@ make logs                # follow the logs; `make down` stops the stack
 
 ## Monitoring
 
-Both commands read `data/processed` (train = reference, val = current) and never touch the holdout.
+`make drift` and `make drift-sim` read `data/processed` (train = reference, val = current) and never touch
+the holdout. `make api-check` is the one place the FY25 holdout is used, as the final production check.
 
 - `make drift`: Evidently drift reports for the input features and, separately, the target (`log_wage`).
   Writes `reports/drift_features_train_vs_val.html`, `reports/drift_target_train_vs_val.html` and
-  `reports/drift_train_vs_val.json`.
+  `reports/drift_train_vs_val.json`. The JSON has a top-level `alert` (true if any column is flagged or an
+  unseen-share limit is exceeded) and the reasons.
 - `make drift-sim`: corrupts a copy of val five ways (values that would pass input validation) and
   runs the same report on each. Writes `reports/drift_sim_<scenario>.html`,
   `reports/drift_simulation_summary.csv` and `reports/drift_simulation_summary.json`. It exits with
-  code 1 if a scenario does not flag exactly the columns it is expected to.
+  code 1 if a scenario does not flag exactly its expected columns and raise exactly its expected
+  unseen-share alerts.
+- `make api-check`: needs the Docker stack running with a champion registered (`make up`,
+  `make register-docker`, then `make train` for the trained model). It sends a random FY25 sample (`--n`,
+  default 20,000, seed from `params.yaml`) to `POST /predict` in batches, clean and corrupted, rebuilds the
+  model input locally with `prepare_request`, and runs the drift report against train. Clean FY25 is only
+  reported; each corruption must flag its expected columns and raise its expected unseen-share alerts.
+  Writes `reports/api_check_<scenario>.html` and `reports/api_check_summary.json` (model name and version
+  from the API response, flags, unseen shares, MAE and MAPE against the real wages, prediction drift).
+  Exit code 1 if a corruption is not caught.
 
 **Decision rule.** A column is flagged when its drift score is at or above its Evidently threshold
 (0.1 for Jensen-Shannon distance and normed Wasserstein distance). That is stricter than Evidently's
@@ -178,6 +189,31 @@ corrupted:
 
 The drift report also found a real problem: before the SOC 2010 to 2018 crosswalk, `soc_code` scored 0.32
 (flagged) between train and val; after it, 0.082, and 0.073 with the O*NET overrides.
+
+**API-level check** (`make api-check`: FY25 holdout, random sample of 20,000 rows, seed 42, scored against train).
+The input flags only depend on the data, so they are the same for both models. `job_title` is flagged in every
+scenario that checks the inputs, including clean FY25 (0.109): that is natural drift from train, not a false alarm of the check.
+`soc_code` on clean FY25 is close to the line (0.098). MAE is in dollars against the real wages. Prediction
+drift compares the log of the predictions with predictions on a val sample.
+
+| Scenario | Flagged | Unseen-share alert | MAE median baseline | MAE LightGBM | Prediction drift LightGBM |
+|---|---|---|---|---|---|
+| `clean_fy25` | `job_title` | - | 30,199 | 22,835 | 0.039 |
+| `unseen_soc_30pct` | `job_title`, `soc_code`, `soc_major` | `soc_code` | 33,499 | 32,854 | 0.370 (flagged) |
+| `unseen_names_40pct` | `employer_name`, `job_title` | `employer_name`, `job_title` | 30,199 | 25,448 | 0.035 |
+| `full_time_shift_60pct` | `full_time`, `job_title` | - | 30,199 | 23,498 | 0.021 |
+| `swap_title_employer` | `employer_name`, `job_title` | `employer_name`, `job_title` | 30,199 | 29,542 | 0.105 (flagged) |
+| `wage_shift_plus_0.3` | `log_wage` (target, no API call) | - | - | - | - |
+
+- The median baseline only reads `soc_code` and `worksite_state`, so only the SOC corruption changes its
+  predictions. The LightGBM model (FLAML, 600 s budget, trained locally: validation MAE 20,412 against 27,648
+  for the baseline) reacts to the other corruptions too. Prediction drift flags only the SOC corruption and the
+  swap: the 40% unseen names raise MAE by 11% without a prediction-drift flag, so the input checks catch what
+  the prediction check misses.
+- Clean FY25 MAE (22,835) is higher than validation (20,412), possibly because wages keep rising; this was
+  not tested on FY25.
+- One sample and one seed, and the corruption sizes are our choice. FY25 is used only as this final production
+  check, never for tuning. FLAML's search is time-budgeted, so a re-run gives slightly different numbers.
 
 ## Contributions
 
