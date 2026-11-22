@@ -95,8 +95,8 @@ regenerating gives the same result). `reports/ingest_report.json` records how ma
 remapped (`soc_2010_remapped`: 344,992 on FY2022–FY2025).
 
 Effect on FY2022–FY2025: the code mismatch is gone (`15-1252` is 39% of FY2022 and 35% of FY2023),
-`soc_code` drift train → val drops from 0.32 to 0.08 (below the 0.1 threshold), and no val SOC
-code is unseen in train. Fixing a parsing bug at the same time (codes like `15-1132.00.00` were
+`soc_code` drift train → val drops from 0.32 to 0.08 (below the 0.1 threshold), and almost no val SOC
+code is unseen in train (67 of 524,793 val rows, about 0.013%). Fixing a parsing bug at the same time (codes like `15-1132.00.00` were
 rejected) keeps 2,020 more rows. The median baseline gets slightly *worse* (val MAE $27,254 →
 $27,620): FY2022 wages are lower, and before the fix most FY2022 tech rows sat on codes val never
 uses, so the baseline was effectively using FY2023 medians. Training on lower FY2022 wages without
