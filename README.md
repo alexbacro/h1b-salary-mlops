@@ -23,11 +23,13 @@ offer is competitive.
 ## Architecture
 
 ```
-DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─► baseline
- (data/raw)   (Parquet)   (wage normalization)       │
+            ┌──────── Airflow DAG (dags/h1b_pipeline.py): one task per stage, in this order ────────┐
+DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─► baseline ──► register_baseline ──┐
+ (data/raw)   (Parquet)   (wage normalization)      │                (only if no         │
+                                                    │                 @champion yet)     ▼
                                                     └─► features ─► FLAML AutoML ─► MLflow tracking
-                                                                                    + Model Registry
-                                                                                        │
+                                                                      (train)       + Model Registry
+                                                                                    │ @champion
     FY25 test data (clean + corrupted) ──► monitoring script ──► FastAPI /predict (Docker)
                                                    │                      │
                                                    └─► Evidently ◄── predictions
@@ -39,7 +41,7 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 | Data ingestion, validation, baselines | pandas, Parquet | ✅ `src/h1b/` |
 | Orchestration | Airflow DAG (Docker) | ✅ `dags/h1b_pipeline.py` |
 | Experiment tracking & registry | MLflow + FLAML AutoML | ⏳ planned |
-| Serving | FastAPI + Docker Compose | ✅ FastAPI skeleton in `src/h1b/serve.py`; Docker planned |
+| Serving | FastAPI + Docker Compose | ✅ `src/h1b/serve.py` (`/health`, `/predict`, loads `@champion`); Docker via `docker-compose.yml` |
 | Monitoring & drift simulation | Evidently | ✅ `make drift`, `make drift-sim`, `make api-check` |
 | CI | GitHub Actions (ruff + pytest) | ✅ `.github/workflows/ci.yml` |
 
@@ -55,6 +57,26 @@ brew install libomp   # macOS only: xgboost/lightgbm need it (without it make te
 make setup        # pip install -r requirements-dev.txt -e .
 make test         # unit tests, no data needed
 ```
+
+### Run everything, in order
+
+The sections below explain each step. For the full pipeline end to end (Docker with Compose v2 required,
+and the DOL files in `data/raw/`):
+
+```bash
+make data                                              # 1. ingest -> clean -> split -> baseline
+make up                                                # 2. MLflow server (localhost:5001) + API (localhost:8000)
+make register-docker                                   # 3. baseline -> @champion in the stack's MLflow
+MLFLOW_TRACKING_URI=http://localhost:5001 make train   # 4. FLAML; promoted to @champion only if it beats the baseline
+docker compose restart api && make smoke               # 5. API reloads and serves the new champion
+make api-check                                         # 6. FY25 holdout (clean + corrupted) through the API
+```
+
+Or let Airflow run steps 1, 3 and 4: after `make up`, run `make airflow-up` and `make airflow-trigger`,
+then continue with steps 5 and 6 (see [Run the pipeline with Airflow](#run-the-pipeline-with-airflow)).
+
+Step 4 needs `MLFLOW_TRACKING_URI`: without it, `make train` registers into the local `mlflow.db`, which
+the Docker API never reads (see the note on registries under [Run the API](#run-the-api)).
 
 ### Run the data stage
 
@@ -90,6 +112,12 @@ make serve               # http://127.0.0.1:8000; interactive docs at /docs
   `soc_major` is derived from `soc_code` (sending it is rejected).
 - With no champion registered the service still starts, and `/predict` returns 503.
 - The registry defaults to `mlflow.db` in the repo root; set `MLFLOW_TRACKING_URI` to use an MLflow server.
+- **There are two registries, and they don't share models.** The local commands (`make register-baseline`,
+  `make train`, `make serve`) use `mlflow.db` in the repo root. The Docker stack (`make up`,
+  `make register-docker`, Airflow) uses the MLflow server, whose data lives in the `mlflow-data` volume.
+  A model registered in one is invisible to the other, so an API started against the other one returns 503.
+  To register into the Docker stack from your machine, prefix the command with
+  `MLFLOW_TRACKING_URI=http://localhost:5001`.
 
 ### Run the stack with Docker
 
@@ -142,19 +170,31 @@ make airflow-down      # stop Airflow
 ```
 ├── params.yaml              # single source of pipeline configuration
 ├── docker-compose.yml       # MLflow server + API (see "Run the stack with Docker")
-├── docker/                  # Dockerfile and the image's requirements
+├── docker/
+│   ├── Dockerfile           # one image for MLflow server, API and the register job
+│   ├── requirements-serve.txt  # the image's subset of requirements.txt
+│   └── airflow.Dockerfile   # Airflow 3.3 + the project in its own venv (/opt/h1b-venv)
 ├── src/h1b/
-│   ├── config.py            # loads params.yaml, resolves paths
+│   ├── config.py            # loads params.yaml, resolves paths, default MLflow tracking URI
 │   ├── schema.py            # canonical columns + mapping of year-to-year header variants
 │   ├── ingest.py            # Excel -> Parquet (cached per file)
 │   ├── clean.py             # dedupe, filter, annualize wages, normalize text, validate
 │   ├── soc_crosswalk.py     # SOC 2010 -> 2018 lookup (generated)
 │   ├── split.py             # temporal train/val/test split
+│   ├── features.py          # feature contract: FEATURES, REQUEST_FEATURES, to_model_input, prepare_request
 │   ├── baseline.py          # median-by-SOC-and-state baseline
-│   └── metrics.py           # MAE, MAPE, log-RMSE
+│   ├── metrics.py           # MAE, MAPE, log-RMSE
+│   ├── mlflow_models.py     # pyfunc wrappers: every registered model returns USD
+│   ├── register_baseline.py # register the baseline in MLflow, set @champion
+│   ├── encoding.py          # feature encoding for AutoML, fitted on train, shipped inside the model
+│   ├── train.py             # FLAML AutoML -> MLflow; promote to @champion only if better
+│   ├── serve.py             # FastAPI service: /health, /predict, loads @champion
+│   ├── drift_report.py      # Evidently drift report, train vs val
+│   ├── drift_simulation.py  # corrupt val and check the drift report flags it
+│   └── api_check.py         # FY25 holdout through the API, drift + corruption checks
 ├── scripts/                 # one-off generators (e.g. build_soc_crosswalk.py)
 ├── dags/                    # Airflow DAG for the whole pipeline (see dags/README.md)
-├── docker-compose.airflow.yml  # Airflow service; image built from docker/airflow.Dockerfile
+├── docker-compose.airflow.yml  # Airflow service (same network as docker-compose.yml)
 ├── tests/                   # pytest unit tests (run in CI)
 ├── data/                    # git-ignored except README; see data/README.md
 ├── reports/                 # generated JSON reports (git-ignored)
@@ -245,7 +285,7 @@ drift compares the log of the predictions with predictions on a val sample.
 
 | Member | Responsibilities |
 |---|---|
-| Alex Bacro | Repository and CI setup, data ingestion pipeline, technical design, Docker compose stack (MLflow, API, Airflow), end-to-end smoke test in CI, PR review and merging |
+| Alex Bacro | Repository and CI setup, data ingestion pipeline, technical design, Docker compose stack (MLflow server, API), end-to-end smoke test in CI, PR review and merging |
 | Jiwon Choi | MLflow experiment tracking, FLAML training, model registry (alias @champion) |
 | Sola Shin | Evidently monitoring, drift simulation, project coordination |
-| Faith Kirabo | Airflow DAG, FastAPI service |
+| Faith Kirabo | Airflow orchestration: DAG for the whole pipeline (`dags/h1b_pipeline.py`), its Docker image and compose service, bootstrap-only baseline registration. FastAPI service (`src/h1b/serve.py`): `/health` and batch `/predict`, loads `h1b-salary-model@champion` by alias, input normalization shared with training (`features.prepare_request`), batch cap and clear 422/503 errors |
