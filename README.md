@@ -39,7 +39,7 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 | Data ingestion, validation, baselines | pandas, Parquet | ✅ `src/h1b/` |
 | Orchestration | Airflow DAG (Docker) | ✅ `dags/h1b_pipeline.py` |
 | Experiment tracking & registry | MLflow + FLAML AutoML | ⏳ planned |
-| Serving | FastAPI + Docker Compose | ✅ FastAPI skeleton in `src/h1b/serve.py`; Docker planned |
+| Serving | FastAPI + Docker Compose | ✅ `src/h1b/serve.py` (`/health`, `/predict`, loads `@champion`); Docker via `docker-compose.yml` |
 | Monitoring & drift simulation | Evidently | ✅ `make drift`, `make drift-sim`, `make api-check` |
 | CI | GitHub Actions (ruff + pytest) | ✅ `.github/workflows/ci.yml` |
 
