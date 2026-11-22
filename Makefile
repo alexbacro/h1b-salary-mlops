@@ -79,6 +79,10 @@ smoke:  ## GET /health and POST /predict against the running API
 	curl -fsS -X POST http://localhost:$(API_PORT)/predict -H 'Content-Type: application/json' \
 	  -d '{"records": [{"soc_code": "15-1252", "worksite_state": "CA", "worksite_city": "San Jose", "job_title": "Software Engineer", "employer_name": "Acme Corp", "naics_2": "54", "full_time": null}]}'; echo
 
+.PHONY: api-check
+api-check:  ## FY25 holdout through the API in Docker, then drift + corruption checks -> reports/api_check_*
+	$(PYTHON) -m h1b.api_check --url http://localhost:$(API_PORT)
+
 # ── Airflow (docker-compose.airflow.yml); start the MLflow stack first for the register/train tasks ──
 AIRFLOW_COMPOSE ?= docker compose -f docker-compose.airflow.yml
 .PHONY: airflow-up airflow-down airflow-logs airflow-check airflow-trigger

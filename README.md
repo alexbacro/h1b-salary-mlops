@@ -189,7 +189,7 @@ The drift score alone misses moderate corruption: 10% new names flags neither na
 unseen share of `job_title` goes from 0.156 (clean) to about 0.24. The limits are a first guess from
 one validation year and should be revisited after the FY25 check.
 
-**Results** (train FY22-23 vs val FY24, current `main`, before the O*NET follow-up; numbers may shift slightly).
+**Results** (train FY22-23 vs val FY24, `main` with the SOC crosswalk and the O*NET overrides).
 Clean val flags nothing (largest score 0.092, `job_title`). Each corruption flags exactly the columns it
 corrupted:
 
@@ -203,7 +203,7 @@ corrupted:
 | `wage_shift_plus_0.3` | `log_wage` + 0.3 (about 35% higher) | `log_wage` | 0.897 | - |
 
 The drift report also found a real problem: before the SOC 2010 to 2018 crosswalk, `soc_code` scored 0.32
-(flagged) between train and val; after it, 0.082.
+(flagged) between train and val; after it, 0.082, and 0.073 with the O*NET overrides.
 
 ## Contributions
 
