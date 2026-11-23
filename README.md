@@ -183,7 +183,9 @@ the holdout. `make api-check` is the one place the FY25 holdout is used, as the 
   code 1 if a scenario does not flag exactly its expected columns and raise exactly its expected
   unseen-share alerts.
 - `make api-check`: needs the Docker stack running with a champion registered (`make up`,
-  `make register-docker`, then `make train` for the trained model). It sends a random FY25 sample (`--n`,
+  `make register-docker`, then train with
+  `MLFLOW_TRACKING_URI=http://localhost:5001 make train`, `docker compose restart api` and
+  `docker compose up -d --wait api`). It sends a random FY25 sample (`--n`,
   default 20,000, seed from `params.yaml`) to `POST /predict` in batches, clean and corrupted, rebuilds the
   model input locally with `prepare_request`, and runs the drift report against train. Clean FY25 is only
   reported; each corruption must flag its expected columns and raise its expected unseen-share alerts.
