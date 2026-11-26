@@ -41,6 +41,9 @@ check() {
 
 echo "== 1. start the stack (no champion yet)"
 "$PYTHON" scripts/make_synthetic_processed.py "$DATA_DIR"
+# mktemp -d is owner-only (0700); the container runs as a different non-root user, which on Linux
+# (unlike Docker Desktop) can't read it. The data is synthetic, so make it world-readable.
+chmod 755 "$DATA_DIR" && chmod 644 "$DATA_DIR"/*.parquet
 docker compose build api
 docker compose up -d --wait mlflow api
 
