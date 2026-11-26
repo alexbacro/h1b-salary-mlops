@@ -41,7 +41,7 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 | Experiment tracking & registry | MLflow + FLAML AutoML | ⏳ planned |
 | Serving | FastAPI + Docker Compose | ✅ FastAPI skeleton in `src/h1b/serve.py`; Docker planned |
 | Monitoring & drift simulation | Evidently | ✅ `make drift`, `make drift-sim`, `make api-check` |
-| CI | GitHub Actions (ruff + pytest) | ✅ `.github/workflows/ci.yml` |
+| CI | GitHub Actions (ruff + pytest, Docker smoke test) | ✅ `.github/workflows/ci.yml` |
 
 ## Quickstart
 
@@ -112,6 +112,8 @@ make logs                # follow the logs; `make down` stops the stack
 - The API loads the champion at startup. Until one is registered, `/health` shows `model_loaded: false`
   and `/predict` returns 503. After moving `@champion`, restart the API (`docker compose restart api`).
 - The registration job mounts only `data/processed` (read-only). The holdout split is never mounted.
+- CI runs the stack end to end on synthetic data (`make docker-smoke`, `scripts/docker_smoke.sh`): `/predict`
+  returns 503 before a champion exists, then serves the registered baseline's known median.
 
 ### Run the pipeline with Airflow
 

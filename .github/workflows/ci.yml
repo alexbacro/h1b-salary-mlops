@@ -28,3 +28,22 @@ jobs:
 
       - name: Unit tests
         run: pytest -v
+
+  # Builds the Docker image and runs the stack end to end on synthetic data:
+  # /predict is 503 with no champion, then serves the registered baseline (scripts/docker_smoke.sh).
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install what the synthetic-data script needs
+        run: pip install "pandas>=2.2,<3" pyarrow pyyaml numpy
+
+      - name: Docker smoke test
+        env:
+          PYTHONPATH: src
+        run: scripts/docker_smoke.sh
