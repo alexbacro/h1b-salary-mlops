@@ -45,10 +45,11 @@ DOL .xlsx ──► ingest ──► clean/validate ──► split ──┬─
 
 ## Quickstart
 
-Requires Python 3.11+.
+Requires Python 3.11+. If `python3.11 -m venv` fails with `command not found: python3.11`, install it
+first (macOS: `brew install python@3.11`).
 
 ```bash
-git clone git@github.com:alexbacro/h1b-salary-mlops.git
+git clone https://github.com/alexbacro/h1b-salary-mlops.git   # or SSH: git@github.com:alexbacro/h1b-salary-mlops.git
 cd h1b-salary-mlops
 python3.11 -m venv .venv && source .venv/bin/activate
 brew install libomp   # macOS only: xgboost/lightgbm need it (without it make test fails at collection)
@@ -83,6 +84,12 @@ make register-baseline   # registers the median baseline and sets @champion (nee
 make serve               # http://127.0.0.1:8000; interactive docs at /docs
 ```
 
+> **Run `make register-baseline` / `make register-docker` only once, before training.** Both always move
+> `@champion` to the new baseline version, so running them after `make train` replaces the trained model
+> with the baseline. (The Airflow DAG is safe: it registers the baseline only when no champion exists.)
+> If it happens, point the alias back in the MLflow UI (model `h1b-salary-model`, alias `champion`) and
+> restart the API.
+
 - `GET /health` reports whether a model is loaded and which version is served.
 - `POST /predict` takes `{"records": [...]}` (1 to 10,000 records with the columns in
   `REQUEST_FEATURES`, `src/h1b/features.py`) and returns one predicted annual wage in USD per record.
@@ -112,6 +119,11 @@ make logs                # follow the logs; `make down` stops the stack
 - The API loads the champion at startup. Until one is registered, `/health` shows `model_loaded: false`
   and `/predict` returns 503. After moving `@champion`, restart the API (`docker compose restart api`).
 - The registration job mounts only `data/processed` (read-only). The holdout split is never mounted.
+- If `make up` fails with `port is already allocated`, another program uses 8000 or 5001: set
+  `API_PORT` / `MLFLOW_PORT` in `.env` (e.g. `API_PORT=8010`).
+- If training in Docker (Airflow's `train` task) is killed with exit code 137, Docker ran out of memory:
+  raise it in Docker Desktop ▸ Settings ▸ Resources, or set
+  `training.max_train_rows` in `params.yaml` for a smaller run.
 
 ### Run the pipeline with Airflow
 
