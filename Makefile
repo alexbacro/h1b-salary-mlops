@@ -55,7 +55,7 @@ serve:  ## FastAPI service on http://127.0.0.1:8000 (registry: MLFLOW_TRACKING_U
 	$(PYTHON) -m uvicorn h1b.serve:app --host 127.0.0.1 --port 8000
 
 # ── Docker compose stack (MLflow server + API); see "Run the stack with Docker" in the README ──
-.PHONY: up down logs register-docker smoke
+.PHONY: up down logs register-docker smoke docker-smoke
 
 # mlflow and api share one image tag. Build it once (via api) before starting: with `up --build`
 # both services build and race to export the same tag, and a fresh machine fails with "already exists".
@@ -73,6 +73,9 @@ register-docker:  ## Register the baseline in the stack's MLflow (needs make dat
 	$(COMPOSE) run --rm register
 	$(COMPOSE) restart api
 	$(COMPOSE) up -d --wait api
+
+docker-smoke:  ## CI's end-to-end Docker test on synthetic data (own compose project; cleans up after itself)
+	PYTHON=$(PYTHON) scripts/docker_smoke.sh
 
 smoke:  ## GET /health and POST /predict against the running API
 	curl -fsS http://localhost:$(API_PORT)/health; echo
